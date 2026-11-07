@@ -1,10 +1,13 @@
 package cli
 
 import (
+	"errors"
 	"strings"
+	"unicode"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/heartleo/zlib/internal/zlib"
 )
 
 // shellErrorModel keeps a failed operation and its next action on screen.
@@ -60,4 +63,29 @@ func downloadFailureDetail(err error) string {
 		}
 	}
 	return strings.Join(words, " ")
+}
+
+// shellErrorText words an error for the shell, where the remedy for a missing
+// or rejected session is /login rather than the CLI's `zlib login`.
+func shellErrorText(err error) string {
+	switch {
+	case errors.Is(err, errNotLoggedIn), errors.Is(err, zlib.ErrNotLoggedIn):
+		return "Not logged in. Use /login to sign in."
+	case errors.Is(err, zlib.ErrSessionExpired):
+		return "Session expired. Use /login to sign in again."
+	}
+	return err.Error()
+}
+
+// safeText drops control characters other than newline and tab, so an error
+// message carrying server text cannot reach the terminal as an escape
+// sequence. The library already cleans EAPI responses; this guards the
+// outputs that print error text.
+func safeText(s string) string {
+	return strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) && r != '\n' && r != '\t' {
+			return -1
+		}
+		return r
+	}, s)
 }

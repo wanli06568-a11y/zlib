@@ -8,7 +8,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"charm.land/lipgloss/v2/table"
-	zlib "github.com/heartleo/zlib"
+	zlib "github.com/heartleo/zlib/internal/zlib"
 	"github.com/mattn/go-runewidth"
 	"github.com/spf13/cobra"
 )
@@ -27,7 +27,10 @@ func newBookFeedCommand(name, description, summary string, load func(*zlib.Clien
 		Short: description,
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			c := newClient()
+			c, err := loadClient()
+			if err != nil {
+				return err
+			}
 			fetch := func() ([]zlib.Book, error) { return load(c) }
 			jsonOut, _ := cmd.Flags().GetBool("json")
 			if !jsonOut && isInteractive() {

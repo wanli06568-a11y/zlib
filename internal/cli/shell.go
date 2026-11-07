@@ -16,8 +16,8 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
-	zlib "github.com/heartleo/zlib"
 	"github.com/heartleo/zlib/internal/config"
+	zlib "github.com/heartleo/zlib/internal/zlib"
 	"github.com/spf13/cobra"
 )
 
@@ -57,14 +57,35 @@ type shellModel struct {
 	loginCancel                                                     context.CancelFunc
 	spinner                                                         spinner.Model
 	noticeVersion                                                   uint64
+	noticeTone                                                      noticeTone
 	standalone                                                      bool
 	commandErr                                                      error
 }
 
 const shellNoticeTTL = 5 * time.Second
 
-func (m *shellModel) setNotice(message string) {
+// noticeTone sets how shell feedback looks and how long it stays.
+type noticeTone int
+
+const (
+	noticeInfo    noticeTone = iota // neutral guidance; expires
+	noticeSuccess                   // ✓ in the success color; expires
+	noticeError                     // ✗ in the error color; stays until the next key
+)
+
+// setNotice shows neutral feedback, such as a hint, for shellNoticeTTL.
+func (m *shellModel) setNotice(message string) { m.notify(noticeInfo, message) }
+
+// setSuccess confirms a finished action for shellNoticeTTL.
+func (m *shellModel) setSuccess(message string) { m.notify(noticeSuccess, message) }
+
+// setError reports a failure. It does not expire: a timer could clear it
+// before it was read, so the next key press dismisses it instead.
+func (m *shellModel) setError(message string) { m.notify(noticeError, message) }
+
+func (m *shellModel) notify(tone noticeTone, message string) {
 	m.status = message
+	m.noticeTone = tone
 	m.noticeVersion++
 }
 
@@ -275,10 +296,13 @@ func (m shellModel) childInputActive() bool {
 }
 func (m shellModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if expired, ok := msg.(shellNoticeExpired); ok {
-		if expired.version == m.noticeVersion && m.kind != "info" {
+		if expired.version == m.noticeVersion && m.kind != "info" && m.noticeTone != noticeError {
 			m.status = ""
 		}
 		return m, nil
+	}
+	if _, ok := msg.(tea.KeyPressMsg); ok && m.noticeTone == noticeError && m.status != "" && m.kind != "info" {
+		m.status = ""
 	}
 	before := m.noticeVersion
 	next, cmd := m.update(msg)
@@ -290,7 +314,7 @@ func (m shellModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, tea.Quit
 	}
-	if m.noticeVersion != before && m.status != "" && m.kind != "info" {
+	if m.noticeVersion != before && m.status != "" && m.kind != "info" && m.noticeTone != noticeError {
 		version := m.noticeVersion
 		expire := tea.Tick(shellNoticeTTL, func(time.Time) tea.Msg {
 			return shellNoticeExpired{version: version}
@@ -330,7 +354,7 @@ func (m shellModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						return m, m.reopenLoginForm(result.err.Error())
 					}
 					m.home()
-					m.setNotice(result.err.Error())
+					m.setError(result.err.Error())
 					return m, nil
 				}
 				m.loginForm = nil
@@ -552,7 +576,7 @@ func (m *shellModel) dispatch(value string) tea.Cmd {
 		}
 	}
 	if !known {
-		m.setNotice("Unknown command: /" + name)
+		m.setError("Unknown command: /" + name)
 		return nil
 	}
 	if name == "quit" {
@@ -580,9 +604,9 @@ func (m *shellModel) dispatch(value string) tea.Cmd {
 		if !m.signedIn {
 			removed, err := clearSavedSession()
 			if err != nil {
-				m.setNotice("Could not log out: " + err.Error())
+				m.setError("Could not log out: " + err.Error())
 			} else if removed {
-				m.setNotice("Logged out")
+				m.setSuccess("Logged out")
 			} else {
 				m.setNotice("Not logged in")
 			}
@@ -594,20 +618,20 @@ func (m *shellModel) dispatch(value string) tea.Cmd {
 	case "config":
 		store, err := newSettingsStore()
 		if err != nil {
-			m.setNotice(err.Error())
+			m.setError(err.Error())
 			return nil
 		}
 		page := arg
 		if page == "" {
 			page = "home"
 		}
-		if page != "home" && page != "network" && page != "download" && page != "kindle" {
-			m.setNotice("Use /config network, /config download, or /config kindle")
+		if page != "home" && page != "network" && page != "download" && page != "kindle" && page != "domain" {
+			m.setError("Use /config network, /config domain, /config download, or /config kindle")
 			return nil
 		}
 		model, err := newSettingsModel(context.Background(), store, page)
 		if err != nil {
-			m.setNotice(err.Error())
+			m.setError(err.Error())
 			return nil
 		}
 		return m.open("config", model)
@@ -621,7 +645,7 @@ func (m *shellModel) dispatch(value string) tea.Cmd {
 		m.pending = value
 		m.home()
 		if m.signedIn {
-			m.setNotice(err.Error())
+			m.setError(shellErrorText(err))
 		} else {
 			m.setNotice("Sign in to continue. Press Enter to sign in.")
 		}
@@ -665,7 +689,7 @@ func (m *shellModel) completed() tea.Cmd {
 		if err != nil {
 			m.pending = "/search " + page.query
 			m.home()
-			m.setNotice(err.Error())
+			m.setError(shellErrorText(err))
 			return nil
 		}
 		return m.open("list", newSearchSelectModel(page.query, c, page.searchOptions(), false))
@@ -680,7 +704,7 @@ func (m *shellModel) completed() tea.Cmd {
 				var err error
 				client, err = loadClient()
 				if err != nil {
-					m.setNotice(err.Error())
+					m.setError(shellErrorText(err))
 					m.restore()
 					return nil
 				}
@@ -744,9 +768,9 @@ func (m *shellModel) completed() tea.Cmd {
 			cfg, _ := config.LoadConfig()
 			cfg.Theme = page.selected()
 			if err := config.SaveConfig(cfg); err != nil {
-				m.setNotice(err.Error())
+				m.setError(err.Error())
 			} else {
-				m.setNotice("Theme saved: " + cfg.Theme)
+				m.setSuccess("Theme saved: " + cfg.Theme)
 			}
 			resolveTheme()
 		}
@@ -804,7 +828,7 @@ func (m *shellModel) completed() tea.Cmd {
 				_, err := clearSavedSession()
 				if err != nil {
 					m.restore()
-					m.setNotice("Could not log out: " + err.Error())
+					m.setError("Could not log out: " + err.Error())
 					return nil
 				}
 				m.signedIn = false
@@ -899,7 +923,7 @@ func (m shellModel) View() tea.View {
 		}
 	}
 	if m.kind == "info" && !m.typing {
-		lines := strings.Split(m.status, "\n")
+		lines := strings.Split(safeText(m.status), "\n")
 		visible := max(1, m.height-6)
 		start := min(max(0, m.infoOffset), max(0, len(lines)-visible))
 		end := min(len(lines), start+visible)
@@ -953,16 +977,23 @@ func (m shellModel) View() tea.View {
 
 func (m shellModel) noticeView(base tea.View) tea.View {
 	width := max(1, m.width)
-	message := strings.ReplaceAll(m.status, "\n", " ")
+	message := strings.ReplaceAll(safeText(m.status), "\n", " ")
 	message = strings.ReplaceAll(message, "\r", " ")
-	message = ansi.Truncate(message, max(1, width-6), "…")
 	style := lipgloss.NewStyle().Foreground(currentTheme.Title).Background(currentTheme.Surface).Padding(0, 1)
+	switch m.noticeTone {
+	case noticeSuccess:
+		message = symbolSuccess + " " + message
+		style = style.Foreground(currentTheme.Success)
+	case noticeError:
+		message = symbolError + " " + message
+		style = style.Foreground(currentTheme.Error)
+	}
+	message = ansi.Truncate(message, max(1, width-6), "…")
 	notice := style.Render(message)
 	x := max(0, width-ansi.StringWidth(notice)-1)
-	y := 1
-	if m.height < 4 {
-		y = 0
-	}
+	// Row 0 is the page title, left-aligned; row 1 is the list status line
+	// (page and position), which feedback must not cover.
+	y := 0
 	return fullScreenView(m.width, m.height, lipgloss.NewCompositor(
 		lipgloss.NewLayer(base.Content), lipgloss.NewLayer(notice).X(x).Y(y),
 	).Render())

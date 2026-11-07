@@ -42,10 +42,13 @@ including from last to first; the list scrolls when selection leaves its visible
 rows. Type to filter, Tab to complete into the command input, or Enter to run.
 On book lists, Ctrl+K also opens the dialog. Esc closes it and restores the page.
 
-Shell command feedback appears near the top of the screen for five seconds.
-New feedback restarts the timer; an older timer cannot clear a newer message.
-The input and bottom key hints stay in place. Errors that need a response stay
-on their form or result page.
+Shell command feedback appears at the right end of the title row, so the list
+status line below it stays visible. Errors start with ✗ in the error color and
+stay until the next key press. Confirmations start with ✓ in the success color;
+they and neutral hints disappear after five seconds. New feedback restarts the
+timer; an older timer cannot clear a newer message. The input and bottom key
+hints stay in place. Errors that need a response stay on their form or result
+page.
 
 Direct commands such as `zlib search` and `zlib history --json` still work.
 The Search form shows query, year range, languages, formats, exact match, and sort
@@ -97,7 +100,10 @@ only available domains, without a status label on each row. The accent border
 marks the focused row; `Current domain` marks the configured domain, which gets
 initial focus when available. Moving the focus does not change configuration.
 Redirected output uses a single-column table; `--json` keeps the probe fields.
-The position bar follows the selected book.
+The status row below the list title is the only position indicator: it reads
+`Page 1 of 10 · Book 5 of 50` (feeds without pages show only `Book 5 of 50`).
+The title row carries no counter and there is no progress bar; the EAPI reports
+a page count but no total number of books, so lists never show one.
 Search loads up to 50 books per server page, matching the direct `search` command.
 The number of visible rows follows the terminal height; scroll within a page with
 ↑/↓ or PgUp/PgDn and change server pages with ←/→.
@@ -128,7 +134,7 @@ The selected book's EAPI details load after the selection settles. Results are
 cached by `id:hash`; moving to another book keeps an older response from
 replacing its card. The list response remains visible while details load.
 The card border uses the theme accent, and its author uses the theme's primary
-text color. Moving the selection updates the card and position bar immediately,
+text color. Moving the selection updates the card and status position immediately,
 without a color flash or animated position change.
 History uses the same `#`, `Title`, and `Author` columns as the other book lists.
 The selected entry's download date appears beside the page status. Its card uses
@@ -162,6 +168,7 @@ selection style.
 | Login, search options, Kindle settings | Enter edits a field; Enter applies an edit; Tab advances; choose the final action or press Ctrl+S to submit; Esc cancels |
 | Format selection | Huh checkbox list: ↑/↓ moves; Space toggles; Ctrl+A selects all or clears all; Enter continues; no selected formats means all formats |
 | Config | Network, download and Kindle settings appear in one compact list; arrows or Tab select a field; Enter opens it; Esc returns; Tab selects editor actions |
+| Config domain | Your mirrors, then built-in domains, each with its check result and available rows first within each group; `●` marks the current domain; rows appear at once and fill in as checks finish. Enter uses an available row and explains why other rows cannot be used; `a` adds a mirror (check, then a trust dialog); `d` removes a mirror after confirmation; `r` checks again; Esc returns |
 | File picker | Enter opens a folder or selects a file; ← goes to the parent; `/` accepts a directory path; Esc exits |
 | Download directory | A centered dialog overlays the selected book list. Download here uses the displayed folder; Choose another folder opens the browser. Space selects a folder; e or / edits the path; Esc uses the displayed folder; Ctrl+C cancels. |
 | Theme | Type to filter; ↑/↓ previews; Enter selects; Ctrl+N creates a custom theme; Ctrl+E edits a custom theme or copies a built-in; Ctrl+S saves color edits; Esc cancels or clears the filter |
@@ -188,9 +195,9 @@ pages and transitions. Closing them returns to the terminal. Kindle send results
 stay visible until dismissed; non-interactive sends do not open a confirmation.
 
 Crush revision: `f49b28113b3bab3fcfe193676cc3f7fb858d6411`.
-The local source checkout is `D:\myspace\github\AI\crush` (Git Bash:
-`/d/myspace/github/AI/crush`; WSL: `/mnt/d/myspace/github/AI/crush`). Check its
-current HEAD before comparing code with the revision above.
+Compare against a local clone of
+[charmbracelet/crush](https://github.com/charmbracelet/crush) (`<crush-checkout>`).
+Check its current HEAD before comparing code with the revision above.
 The implementation uses Bubbles v2, Huh v2 and Lip Gloss v2, with interaction patterns
 from Crush's `internal/ui/dialog/models.go`, `filepicker.go`, `inline_editor.go`,
 `dialog.go`, `internal/ui/list/list.go` and `internal/ui/model/status.go`.

@@ -8,7 +8,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"charm.land/lipgloss/v2/table"
-	"github.com/heartleo/zlib"
+	"github.com/heartleo/zlib/internal/zlib"
 	"github.com/mattn/go-runewidth"
 	"github.com/spf13/cobra"
 )
@@ -29,9 +29,12 @@ var historyCmd = &cobra.Command{
 		jsonOut, _ := cmd.Flags().GetBool("json")
 		deleteID, _ := cmd.Flags().GetString("delete")
 
-		c := newClient()
+		c, err := loadClient()
+		if err != nil {
+			return err
+		}
 		if deleteID != "" {
-			if err := c.DeleteDownloadHistory(deleteID); err != nil {
+			if err := c.DeleteDownloadHistoryContext(cmd.Context(), deleteID); err != nil {
 				return err
 			}
 			if jsonOut {
@@ -54,7 +57,7 @@ var historyCmd = &cobra.Command{
 			if bookName == "" {
 				bookName = downloadID
 			}
-			return runDownload(newDirectDownloadModel(bookName, item.DownloadURL, dir, c), sendToKindle, cmd)
+			return runDownload(historyDirectDownload(item, bookName, dir, c), sendToKindle, cmd)
 		}
 
 		// No flags: interactive mode (--json always forces the static path)
@@ -79,55 +82,20 @@ var historyCmd = &cobra.Command{
 			if bookName == "" {
 				bookName = bookIDFromURL(item.URL)
 			}
-			return runDownload(newDirectDownloadModel(bookName, item.DownloadURL, dir, c), sendToKindle, cmd)
+			return runDownload(historyDirectDownload(*item, bookName, dir, c), sendToKindle, cmd)
 		}
 
-		result, err := c.DownloadHistory(page)
+		result, err := loadHistoryPage(cmd.Context(), c, page, formatFilter)
 		if err != nil {
 			return err
 		}
 
-		if len(result.Items) == 0 && !jsonOut {
+		if len(result.Items) == 0 && !jsonOut && formatFilter == "" {
 			lipgloss.Fprintf(os.Stdout, "No download history found on page %d.\n", result.Page)
 			return nil
 		}
 
-		// Collect book IDs that need detail fetch for Extension/Size
-		var missingIDs []string
-		for _, item := range result.Items {
-			if id := historyCommandID(item); id != "" && item.Extension == "" {
-				missingIDs = append(missingIDs, id)
-			}
-		}
-		if len(missingIDs) > 0 {
-			details := c.FetchBookDetails(missingIDs)
-			for i, item := range result.Items {
-				id := historyCommandID(item)
-				if d, ok := details[id]; ok {
-					if result.Items[i].Extension == "" {
-						result.Items[i].Extension = d.Extension
-					}
-					if result.Items[i].Size == "" {
-						result.Items[i].Size = d.Size
-					}
-				}
-			}
-		}
-
 		if jsonOut {
-			// Apply the same format filter as the table, and fill in the
-			// alphanumeric ID that `zlib history --download` accepts.
-			items := make([]zlib.DownloadHistoryItem, 0, len(result.Items))
-			for _, item := range result.Items {
-				if formatFilter != "" && !strings.EqualFold(item.Extension, formatFilter) {
-					continue
-				}
-				if id := historyCommandID(item); id != "" {
-					item.ID = id
-				}
-				items = append(items, item)
-			}
-			result.Items = items
 			return printJSON(result)
 		}
 
@@ -135,10 +103,7 @@ var historyCmd = &cobra.Command{
 
 		rows := make([][]string, 0, len(result.Items))
 		for i, item := range result.Items {
-			if formatFilter != "" && !strings.EqualFold(item.Extension, formatFilter) {
-				continue
-			}
-			id := historyCommandID(item)
+			id := item.ID
 			if id == "" {
 				id = "-"
 			}
@@ -224,4 +189,12 @@ func findHistoryItemByBookID(c *zlib.Client, bookID string) (zlib.DownloadHistor
 	}
 
 	return zlib.DownloadHistoryItem{}, fmt.Errorf("book %s not found in the first %d history pages", bookID, maxHistoryPages)
+}
+
+// historyDirectDownload downloads a history entry from its known URL. It keeps
+// the entry's id:hash reference so `history --download --json` reports it.
+func historyDirectDownload(item zlib.DownloadHistoryItem, bookName, dir string, c *zlib.Client) downloadModel {
+	m := newDirectDownloadModel(bookName, item.DownloadURL, dir, c)
+	m.id = historyCommandID(item)
+	return m
 }

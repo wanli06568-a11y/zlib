@@ -9,7 +9,7 @@ version as **`vX.Y.Z`**, with a lowercase `v` prefix: `v0.0.10`, not `0.0.10`.
 | --- | --- |
 | Git tags and GitHub release names | `v0.0.10` |
 | `zlib version` and `zlib --version` | `zlib version v0.0.10` |
-| `zlib update` messages | `Updated zlib v0.0.9 → v0.0.10.` |
+| `zlib update` messages | `Installed zlib v0.0.10`, ` + zlib v0.0.10` |
 | Changelogs, advisories, issues, docs and commit messages | `Fixed in v0.0.10.` |
 
 Builds between tags report a Go pseudo-version, such as
@@ -22,11 +22,13 @@ report `dev`. Both forms keep the rule.
   `{{.Version}}` is the tag without its `v`.
 - `go install` and source builds take the version from Go build info, which
   already has the `v`.
-- `version.go` (`canonicalVersion`) adds a missing `v` to any numeric version
-  injected by another packager, so `-X github.com/heartleo/zlib.Version=0.0.10`
+- `internal/zlib/version.go` (`canonicalVersion`) adds a missing `v` to any numeric version
+  injected by another packager, so `-X github.com/heartleo/zlib/internal/zlib.Version=0.0.10`
   still reports `v0.0.10`.
 
-`TestCanonicalVersion` covers the normalization. To check a release binary,
+`TestCanonicalVersion` covers the normalization, and
+`TestGoReleaserLdflagsTargetThisPackage` fails when the ldflags package path
+no longer matches the package that declares `Version`. To check a release binary,
 run `zlib version`.
 
 ## Exceptions
@@ -38,7 +40,7 @@ Some formats are owned by other tools, so the rule does not apply to them.
 | Release asset names | `zlib_0.0.10_linux_x86_64.tar.gz` | GoReleaser's default name. `zlib update` in every released version builds this name from the tag, so renaming the assets would break updates from those versions. |
 | winget and Homebrew manifests | `0.0.10` | These package managers require bare versions. GoReleaser writes them. |
 | Plugin manifests (`plugins/zlib/.claude-plugin/plugin.json`, `.codex-plugin/plugin.json`) | `0.2.0` | The plugin has its own version, separate from the CLI. The manifest schemas expect bare SemVer. |
-| `go.mod` `go` line, `@version` module queries and third-party versions | `go 1.26.9`, `govulncheck@v1.9.0` | These follow the upstream tool's syntax. |
+| `go.mod` `go` line, `@version` module queries and third-party versions | `go 1.26.10`, `govulncheck@v1.9.0` | These follow the upstream tool's syntax. |
 
 ## Releasing
 

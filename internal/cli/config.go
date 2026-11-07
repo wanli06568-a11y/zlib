@@ -6,7 +6,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
-	zlib "github.com/heartleo/zlib"
+	zlib "github.com/heartleo/zlib/internal/zlib"
 	"github.com/spf13/cobra"
 )
 
@@ -52,16 +52,19 @@ func settingsCommand(name, page, key, description string) *cobra.Command {
 			}
 			return nil
 		}
-		var initial tea.Cmd
-		if key != "" {
-			initial = m.edit(key)
-		} else if page == "domain" {
-			initial = m.probe(m.effectiveProxy(), "domain")
-		}
-		p := tea.NewProgram(settingsStart{settingsModel: m, initial: initial})
-		_, err = p.Run()
-		return err
+		return runSettingsTUI(m, key)
 	}}
+}
+
+// runSettingsTUI runs the settings UI on m's page, opening the editor for key
+// when set.
+func runSettingsTUI(m settingsModel, key string) error {
+	initial := m.Init()
+	if key != "" {
+		initial = m.edit(key)
+	}
+	_, err := tea.NewProgram(settingsStart{settingsModel: m, initial: initial}).Run()
+	return err
 }
 
 type settingsStart struct {

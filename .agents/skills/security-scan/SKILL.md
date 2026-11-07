@@ -11,6 +11,10 @@ after touching cookies, EAPI headers, redirects, domain policy, downloads,
 its ID, the affected package or file, whether the code reaches it, and the
 fixed version. Do not drop findings you judge harmless; mark them instead.
 
+Every commit already runs govulncheck and a staged gitleaks scan through the
+mandatory pre-commit hook (`scripts/check.sh`, see `.github/CONTRIBUTING.md`). The
+steps below go further: full history, GitHub alerts and the manual review.
+
 ## 1. Go vulnerabilities (govulncheck)
 
 ```sh
@@ -45,13 +49,22 @@ pinned govulncheck version the same in both and in this file.
 
 ## 2. Secrets
 
-`gitleaks.yml` scans every push and PR. Locally, scan the history and the
-working tree, including untracked files that might be committed next:
+`gitleaks.yml` scans every push and PR, and the whole history weekly. Both
+gitleaks commands read `.gitleaks.toml` (default rules plus `remix_userkey`
+values and real home-directory paths) and `.gitleaksignore` (reviewed
+historical findings) from the repository root. Locally, scan the history and
+the working tree, including untracked files that might be committed next, then
+the documentation:
 
 ```sh
-gitleaks git --redact -v
-gitleaks dir --redact -v .
+gitleaks git --redact -v .
+gitleaks dir --redact -v .     # also reports gitignored local files; check each path
+node scripts/check-docs.mjs
 ```
+
+`check-docs.mjs` finds what secret scanners do not: local paths, the current
+OS username, emails and private IPs in Markdown, skills and local notes. Rules
+and the leak procedure: `AGENTS.md#documentation-privacy`.
 
 Tests use fake values only (`fake-user`, `FAKE-KEY`). Real `remix_userid` or
 `remix_userkey` values, passwords, SMTP credentials, or proxy addresses must
