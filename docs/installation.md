@@ -10,8 +10,26 @@ and Windows on x86-64 and ARM64; they do not require Go.
 macOS / Linux:
 
 ```bash
-brew install heartleo/tap/zlib
+brew install heartleo/tap/zlib-cli
 ```
+
+The formula is named `zlib-cli` because Homebrew's own `zlib` library already
+uses the name `zlib`; the command it installs is still `zlib`.
+
+Homebrew does not move an installation of the earlier `heartleo/tap/zlib`
+formula to the new name, and `brew upgrade` never updates it. Replace it once.
+The first command removes `zlib` only when it is the old command, never
+Homebrew's own library:
+
+```bash
+brew list zlib | grep -q bin/zlib && brew uninstall zlib
+brew install heartleo/tap/zlib-cli
+```
+
+Maintainers: keep GoReleaser's formula name set to `zlib-cli`, and do not add a
+`formula_renames.json` that maps `zlib` to `zlib-cli` to `heartleo/homebrew-tap`.
+Homebrew would treat a Homebrew-installed `zlib` library as the old name and
+fail to install or upgrade `zlib-cli` next to it.
 
 Windows (PowerShell):
 
@@ -27,9 +45,28 @@ On macOS / Linux:
 curl -fsSL https://raw.githubusercontent.com/heartleo/zlib/main/install.sh | sh
 ```
 
+The script checks the archive against the release's `checksums.txt` and installs
+nothing on a mismatch. It installs `zlib` to `/usr/local/bin`, creating the
+directory if it is missing and asking for `sudo` when your user cannot write
+there. Set
+`ZLIB_INSTALL_DIR` to install somewhere else, for example
+`curl -fsSL https://raw.githubusercontent.com/heartleo/zlib/main/install.sh | ZLIB_INSTALL_DIR="$HOME/.local/bin" sh`;
+that directory must be on your `PATH`.
+
 For a manual install, download the archive for your OS and architecture from
 [Releases](https://github.com/heartleo/zlib/releases/latest). Extract `zlib`
 (`zlib.exe` on Windows) into a directory on your `PATH`.
+
+Archives published after v0.0.14 carry signed build provenance. To check one
+before extracting it:
+
+```sh
+gh attestation verify zlib_0.0.15_linux_x86_64.tar.gz --repo heartleo/zlib
+```
+
+Use the archive's own name: Windows ships a `.zip`, such as
+`zlib_0.0.15_windows_x86_64.zip`, and ARM builds say `arm64` where Intel and
+AMD builds say `x86_64`.
 
 ## Go install
 
@@ -83,9 +120,8 @@ tag, for example `zlib version v0.0.10`. See [Versioning](versioning.md).
 `zlib update` uses Homebrew, winget or Go when it can identify that installation.
 For a standalone binary, it downloads the latest GitHub release for the current
 OS and architecture, verifies the release checksum, then replaces the executable.
-The previous executable remains next to it as `zlib.previous` (or
-`zlib.exe.previous` on Windows). Restart zlib after updating. A source build with
-an unrecognized version must be rebuilt or replaced with a release.
+Restart zlib after updating. A source build with an unrecognized version must be
+rebuilt or replaced with a release.
 
 In a terminal, each finished step stays on screen with its timing while the
 download shows a live progress bar, size and transfer rate:
@@ -104,8 +140,14 @@ Ctrl+C during the download cancels the update and leaves the executable
 unchanged. Without a terminal (a pipe or CI), the same step lines print without
 the progress bar.
 
+With Homebrew, winget or Go, zlib runs the package manager and shows its own
+output, then prints the same two lines for the version change, or
+`zlib v0.0.13 is up to date` when nothing changed. A package manager exits
+successfully either way, so the version is read from the installed `zlib`
+afterwards; if that fails, zlib asks you to run `zlib version` instead.
+
 If the update cannot identify your package manager, use its normal upgrade
-command: `brew upgrade heartleo/tap/zlib`,
+command: `brew upgrade heartleo/tap/zlib-cli`,
 `winget upgrade --id heartleo.zlib --exact`, or
 `go install github.com/heartleo/zlib/cmd/zlib@latest`.
 

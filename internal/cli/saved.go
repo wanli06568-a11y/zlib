@@ -3,7 +3,6 @@ package cli
 import (
 	"charm.land/lipgloss/v2"
 
-	tea "charm.land/bubbletea/v2"
 	"github.com/spf13/cobra"
 )
 
@@ -19,7 +18,7 @@ func newSavedBooksCommand(name string) *cobra.Command {
 	cmd.Flags().IntP("page", "p", 1, "Page number")
 	cmd.Flags().Bool("json", false, "Print favorites as JSON")
 	addDestDirFlag(cmd)
-	cmd.Flags().Bool("send-to-kindle", false, "Send the downloaded book to Kindle")
+	addDeliveryFlags(cmd)
 	return cmd
 }
 
@@ -30,8 +29,7 @@ func runSavedBooks(cmd *cobra.Command, args []string) error {
 	}
 	jsonOut, _ := cmd.Flags().GetBool("json")
 	if !jsonOut && !cmd.Flags().Changed("page") && isInteractive() {
-		p := tea.NewProgram(newSavedBooksSelectModel(c.SavedBooks).withBookDetails(c))
-		result, err := p.Run()
+		result, err := runCoverProgram(newSavedBooksSelectModel(c.SavedBooks).withBookDetails(c))
 		if err != nil {
 			return err
 		}
@@ -46,8 +44,10 @@ func runSavedBooks(cmd *cobra.Command, args []string) error {
 		if err != nil {
 			return err
 		}
-		sendToKindle, _ := cmd.Flags().GetBool("send-to-kindle")
-		return runDownload(newDownloadModel(selected.selectedID, dir, c), sendToKindle, cmd)
+		deliver := deliveryFlags(cmd)
+		model := newDownloadModel(selected.selectedID, dir, c)
+		model.autoKindle = selected.kindleShortcut
+		return runDownload(model, deliver, cmd)
 	}
 
 	page, _ := cmd.Flags().GetInt("page")

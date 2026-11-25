@@ -29,10 +29,13 @@ Z-Library 命令行工具，你和 AI Agent 都能用。
 🔍 **搜索** — 按年份、语言和格式筛选，结果可排序\
 📚 **浏览** — 收藏、推荐、热门图书和下载历史\
 📥 **下载** — 查看书籍详情，选择下载目录\
+🖼️ **封面** — 在终端里显示图书[封面](docs/covers.md)\
+🏷️ **元数据** — 查询和修改电子书[元数据](docs/metadata.md)\
 📖 **发送到 Kindle** — 把文件投递到你的 [Kindle 邮箱](docs/kindle.md)\
+🌏 **导入微信读书** — 把书导入你的[微信读书](docs/weread.md)书架\
 🕒 **用量查看** — 查看每日下载配额\
-🎨 **主题** — 用 `/theme` 切换配色\
-🌐 **网络** — 用 `zlib doctor` 找到可用镜像，可[添加自己信任的镜像](docs/configuration.md#your-own-mirrors)，也支持代理\
+🎨 **主题** — 切换配色\
+🌐 **网络** — 检测可用镜像，可[添加自己信任的镜像](docs/configuration.md#your-own-mirrors)，也支持代理\
 🤖 **AI Agent 集成** — 通过 [Agent 插件](#agent-接入)集成 Claude Code 和 Codex
 
 ## 安装
@@ -40,8 +43,12 @@ Z-Library 命令行工具，你和 AI Agent 都能用。
 macOS / Linux，使用 Homebrew：
 
 ```bash
-brew install heartleo/tap/zlib
+brew install heartleo/tap/zlib-cli
 ```
+
+> [!IMPORTANT]
+> Homebrew formula 已从 `zlib` 改名为 **`zlib-cli`**。  
+> 请使用上面的命令，安装后的命令仍然是 `zlib`。
 
 macOS / Linux，使用安装脚本（安装到 `/usr/local/bin`，可能需要 `sudo`）：
 
@@ -90,7 +97,7 @@ zlib tui
 
 | 按键           | 作用                                             |
 | -------------- | ------------------------------------------------ |
-| `/`            | 打开命令列表：搜索、收藏、历史、账号、设置、主题 |
+| `/`            | 打开命令列表：搜索、收藏、历史、账号、元数据、设置、主题 |
 | `↑/↓` 或 `j/k` | 选择图书                                         |
 | `←/→`          | 上一页或下一页结果                               |
 | `Enter`        | 下载选中的图书（先确认）                         |
@@ -98,7 +105,11 @@ zlib tui
 | `Esc`          | 返回                                             |
 | `/quit`        | 退出                                             |
 
-设置在 `/config` 下（网络、下载、Kindle）。全部页面和按键见[终端界面说明](docs/tui.md)。
+终端支持 Kitty graphics 或 Sixel，且不小于 100 列 × 20 行时，选中图书的卡片会显示封面；
+其他终端只显示文字（见[封面显示](docs/covers.md)）。`/meta` 先打开文件选择器，
+再在线查询所选电子书，写入前逐个字段确认。不需要登录（见[电子书元数据](docs/metadata.md)）。
+
+设置在 `/config` 下（网络、下载、搜索格式、元数据、Kindle、微信读书）。全部页面和按键见[终端界面说明](docs/tui.md)。
 
 ## 常用命令
 
@@ -117,6 +128,10 @@ zlib search "dune" --ext epub --json --count 10
 | 浏览下载历史                    | `zlib history`                 |
 | 查看账号与配额                  | `zlib profile`                 |
 | 发送到 [Kindle](docs/kindle.md) | `zlib kindle send ./book.epub` |
+| 导入[微信读书](docs/weread.md)  | `zlib weread import ./book.epub` |
+| 查看文件的[元数据](docs/metadata.md) | `zlib meta book.epub` |
+| 查询文件的元数据 | `zlib meta book.epub --fetch` |
+| 修改文件的元数据 | `zlib meta book.epub -t "Dune" -a "Frank Herbert" --rename` |
 
 下载时，将 `id:hash` 替换为结果中书籍的完整 `id`：
 
@@ -129,7 +144,7 @@ zlib download "id:hash"
 
 ## Agent 接入
 
-可安装 Agent 插件，或直接注册 MCP 服务（`zlib mcp`）。没有 `zlib` 时，插件首次使用会自行安装。登录请自己运行 `zlib login`，密码不要发到对话里。
+可安装 Agent 插件，或直接注册 MCP 服务（`zlib mcp`）。插件同时带来 skills 和 MCP 服务。没有 `zlib` 时，skills 首次使用会自行安装；MCP 服务则要求 `zlib` 已在 `PATH` 中。登录请自己运行 `zlib login`，密码不要发到对话里。
 
 ### Claude Code
 
@@ -149,6 +164,15 @@ codex plugin marketplace add heartleo/zlib
 codex plugin add zlib@zlib
 ```
 
+### Grok
+
+安装插件：
+
+```sh
+grok plugin marketplace add heartleo/zlib
+grok plugin install zlib --trust
+```
+
 ### MCP 服务
 
 把 `zlib mcp` 注册为本地 stdio 服务。需已安装 `zlib` 并完成登录：
@@ -159,9 +183,12 @@ claude mcp add -s user zlib -- zlib mcp
 
 # Codex
 codex mcp add zlib -- zlib mcp
+
+# Grok
+grok mcp add zlib -- zlib mcp
 ```
 
-在 `mcp` 后加 `--read-only` 可禁用下载、删除历史和发送到 Kindle。其他客户端、参数和工具列表见
+在 `mcp` 后加 `--read-only` 可禁用下载、删除历史、发送到 Kindle、导入微信读书和修改元数据。其他客户端、参数和工具列表见
 [MCP 服务](docs/mcp.md)。
 
 ## 文档
@@ -171,9 +198,12 @@ codex mcp add zlib -- zlib mcp
 | [安装指南](docs/installation.md)    | 安装方式、源码编译、`zlib update`   |
 | [使用指南](docs/usage.md)           | 搜索、下载、收藏、历史              |
 | [终端界面](docs/tui.md)             | 命令和快捷键                        |
+| [封面显示](docs/covers.md)          | 支持的终端、限制和缓存              |
+| [电子书元数据](docs/metadata.md)    | 查询来源、修改、重命名、支持的格式  |
 | [配置指南](docs/configuration.md)   | 域名、代理、目录、配置路径          |
 | [主题指南](docs/themes.md)          | 配色列表和预览操作                  |
 | [Kindle](docs/kindle.md)            | SMTP 配置与发送                     |
+| [微信读书](docs/weread.md)          | 扫码登录与导入书架                  |
 | [MCP 服务](docs/mcp.md)             | `zlib mcp` 的客户端配置、参数和工具 |
 | [排障指南](docs/troubleshooting.md) | 登录和网络问题                      |
 

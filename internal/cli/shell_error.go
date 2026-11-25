@@ -14,11 +14,17 @@ import (
 // The shell owns the retry so it can start a fresh, generation-scoped request.
 type shellErrorModel struct {
 	width, height int
+	heading       string
+	note          string
 	title         string
 	subtitle      string
 	detail        string
 	retry         bool
 	selectedRetry bool
+	// signInPath, when set, makes Enter sign in again and resume importing that
+	// file; selectedSignIn records the choice for the shell.
+	signInPath     string
+	selectedSignIn bool
 }
 
 func (m shellErrorModel) Init() tea.Cmd { return nil }
@@ -34,7 +40,10 @@ func (m shellErrorModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.selectedRetry = true
 				return m, tea.Quit
 			}
-		case "esc", "q", "enter":
+		case "enter":
+			m.selectedSignIn = m.signInPath != ""
+			return m, tea.Quit
+		case "esc", "q":
 			return m, tea.Quit
 		}
 	}
@@ -43,11 +52,21 @@ func (m shellErrorModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m shellErrorModel) View() tea.View {
 	message := lipgloss.NewStyle().Foreground(currentTheme.Error).Render(m.title)
-	body := "  " + message + "\n\n  " + bookCell(m.detail)
+	body := "  " + message + "\n\n" + strings.Join(wrapIndented(bookCell(m.detail), m.width, "  ", lipgloss.NewStyle()), "\n")
 	if m.retry {
 		return screenView(m.width, m.height, "Download", m.subtitle, body, "", uiKey("r", "retry"), uiKey("esc", "back"))
 	}
-	return screenView(m.width, m.height, "Send to Kindle", m.subtitle, body+"\n\n  Check your Kindle inbox before sending again.", "", uiKey("esc", "back"))
+	heading, note := m.heading, m.note
+	if heading == "" {
+		heading, note = "Send to Kindle", "Check your Kindle inbox before sending again."
+	}
+	if note != "" {
+		body += "\n\n  " + note
+	}
+	if m.signInPath != "" {
+		return screenView(m.width, m.height, heading, m.subtitle, body, "", uiKey("enter", "sign in again"), uiKey("esc", "back"))
+	}
+	return screenView(m.width, m.height, heading, m.subtitle, body, "", uiKey("esc", "back"))
 }
 
 func downloadFailureDetail(err error) string {
@@ -73,6 +92,12 @@ func shellErrorText(err error) string {
 		return "Not logged in. Use /login to sign in."
 	case errors.Is(err, zlib.ErrSessionExpired):
 		return "Session expired. Use /login to sign in again."
+	}
+	if hint := wereadErrorHint(err, wereadLoginShell); hint != "" {
+		return err.Error() + ". " + hint
+	}
+	if f, ok := describeNetworkError(err); ok {
+		return f.summary(true)
 	}
 	return err.Error()
 }

@@ -36,20 +36,22 @@ var searchCmd = &cobra.Command{
 			if err != nil {
 				return err
 			}
-			selectedID, err := interactiveSearch(c, opts, fullTitle)
+			selected, err := interactiveSearch(c, opts, fullTitle)
 			if err != nil {
 				return err
 			}
-			if selectedID == "" {
+			if selected.selectedID == "" {
 				return nil
 			}
 			dir, err := destDirFlag(cmd)
 			if err != nil {
 				return err
 			}
-			sendToKindle, _ := cmd.Flags().GetBool("send-to-kindle")
+			deliver := deliveryFlags(cmd)
 
-			return runDownload(newDownloadModel(selectedID, dir, c), sendToKindle, cmd)
+			model := newDownloadModel(selected.selectedID, dir, c)
+			model.autoKindle = selected.kindleShortcut
+			return runDownload(model, deliver, cmd)
 		}
 
 		query := strings.Join(args, " ")
@@ -204,6 +206,17 @@ func searchOptsFromFlags(cmd *cobra.Command) (*zlib.SearchOptions, error) {
 	exts, _ := cmd.Flags().GetStringArray("ext")
 	formats, _ := cmd.Flags().GetStringArray("format")
 	exts = append(exts, formats...)
+	if !cmd.Flags().Changed("ext") && !cmd.Flags().Changed("format") {
+		defaults, err := defaultSearchOptions()
+		if err != nil {
+			return nil, err
+		}
+		if defaults != nil {
+			for _, ext := range defaults.Extensions {
+				exts = append(exts, ext.String())
+			}
+		}
+	}
 	from, _ := cmd.Flags().GetInt("from-year")
 	to, _ := cmd.Flags().GetInt("to-year")
 	langs, _ := cmd.Flags().GetStringArray("language")
@@ -223,7 +236,7 @@ func init() {
 	searchCmd.Flags().IntP("page", "p", 1, "Page number")
 	searchCmd.Flags().IntP("count", "n", defaultSearchPageSize, "Results per page")
 	addDestDirFlag(searchCmd)
-	searchCmd.Flags().Bool("send-to-kindle", false, "Send the downloaded book to Kindle")
+	addDeliveryFlags(searchCmd)
 	searchCmd.Flags().StringArray("ext", nil, "Filter by file extension, e.g. epub or pdf (repeatable)")
 	searchCmd.Flags().StringArray("format", nil, "Alias for --ext")
 	searchCmd.Flags().Int("from-year", 0, "Earliest publication year")

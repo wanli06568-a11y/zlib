@@ -28,11 +28,14 @@ English | [简体中文](README.zh.md)
 
 🔍 **Search** — filter by year, language, and format; sort results\
 📚 **Browse** — favorites, recommendations, popular books, and download history\
-📥 **Download** — view book details and choose a download directory\
+📥 **Download** — view book details, choose a download directory\
+🖼️ **Covers** — show book [covers](docs/covers.md) in the terminal\
+🏷️ **Metadata** — look up and edit e-book [metadata](docs/metadata.md)\
 📖 **Send to Kindle** — deliver files to your [Kindle address](docs/kindle.md)\
+🌏 **Send to WeRead** — import books into your [WeRead](docs/weread.md) shelf\
 🕒 **Profile** — check your daily download quota\
-🎨 **Themes** — switch color themes with `/theme`\
-🌐 **Network** — find working mirrors with `zlib doctor`, trust [your own mirror](docs/configuration.md#your-own-mirrors), or use a proxy\
+🎨 **Themes** — change the color theme\
+🌐 **Network** — check which mirrors work, trust [your own mirror](docs/configuration.md#your-own-mirrors), or use a proxy\
 🤖 **AI Agent Integration** — integrate with Claude Code and Codex through [Agent plugins](#agent-setup)
 
 ## Install
@@ -40,8 +43,12 @@ English | [简体中文](README.zh.md)
 macOS / Linux with Homebrew:
 
 ```bash
-brew install heartleo/tap/zlib
+brew install heartleo/tap/zlib-cli
 ```
+
+> [!IMPORTANT]
+> The Homebrew formula was renamed from `zlib` to **`zlib-cli`**.  
+> Use the command above. The installed command is still `zlib`.
 
 macOS / Linux with the install script (installs to `/usr/local/bin`, may ask for `sudo`):
 
@@ -92,7 +99,7 @@ these cover a first session:
 
 | Key            | Action                                                                       |
 | -------------- | ---------------------------------------------------------------------------- |
-| `/`            | Open the command list: search, favorites, history, profile, settings, themes |
+| `/`            | Open the command list: search, favorites, history, profile, metadata, settings, themes |
 | `↑/↓` or `j/k` | Select a book                                                                |
 | `←/→`          | Previous or next page of results                                             |
 | `Enter`        | Download the selected book, after a confirmation                             |
@@ -100,7 +107,13 @@ these cover a first session:
 | `Esc`          | Go back                                                                      |
 | `/quit`        | Exit                                                                         |
 
-Settings live under `/config` (network, downloads, Kindle). See
+On a terminal with Kitty graphics or Sixel support, at least 100 columns by 20
+rows, the selected book's card shows its cover; other terminals show text only
+([Book covers](docs/covers.md)). `/meta` opens a file picker, then looks the
+chosen e-book up online and lets you review each field before writing it. It
+needs no login ([E-book metadata](docs/metadata.md)).
+
+Settings live under `/config` (network, downloads, search formats, metadata, Kindle, WeRead). See
 [Terminal interface](docs/tui.md) for every screen and key.
 
 ## Commands
@@ -120,6 +133,10 @@ zlib search "dune" --ext epub --json --count 10
 | Browse download history          | `zlib history`                 |
 | Check account and quota          | `zlib profile`                 |
 | Send to [Kindle](docs/kindle.md) | `zlib kindle send ./book.epub` |
+| Send to [WeRead](docs/weread.md) | `zlib weread import ./book.epub` |
+| Show a file's [metadata](docs/metadata.md) | `zlib meta book.epub` |
+| Look up a file's metadata | `zlib meta book.epub --fetch` |
+| Edit a file's metadata | `zlib meta book.epub -t "Dune" -a "Frank Herbert" --rename` |
 
 To download, replace `id:hash` with a book's complete `id` from
 the results:
@@ -133,8 +150,9 @@ pagination, and download options.
 
 ## Agent setup
 
-Install the plugin, or register the MCP server (`zlib mcp`). If `zlib` is
-missing, the plugin installs it on first use. Log in yourself with `zlib login`
+Install the plugin, or register the MCP server (`zlib mcp`). The plugin brings
+the skills and the MCP server. If `zlib` is missing, the skills install it on
+first use; the MCP server needs it on `PATH`. Log in yourself with `zlib login`
 so your password stays out of chat.
 
 ### Claude Code
@@ -155,6 +173,15 @@ codex plugin marketplace add heartleo/zlib
 codex plugin add zlib@zlib
 ```
 
+### Grok
+
+Plugin:
+
+```sh
+grok plugin marketplace add heartleo/zlib
+grok plugin install zlib --trust
+```
+
 ### MCP server
 
 Register `zlib mcp` as a local stdio server. `zlib` must be on `PATH` and signed in:
@@ -165,10 +192,13 @@ claude mcp add -s user zlib -- zlib mcp
 
 # Codex
 codex mcp add zlib -- zlib mcp
+
+# Grok
+grok mcp add zlib -- zlib mcp
 ```
 
-Add `--read-only` after `mcp` to hide download, history deletion, and Kindle
-delivery. See [MCP server](docs/mcp.md) for other clients, flags, and tools.
+Add `--read-only` after `mcp` to hide download, history deletion, Kindle
+delivery, WeRead import and metadata editing. See [MCP server](docs/mcp.md) for other clients, flags, and tools.
 
 ## Documentation
 
@@ -177,9 +207,12 @@ delivery. See [MCP server](docs/mcp.md) for other clients, flags, and tools.
 | [Installation](docs/installation.md)       | Install methods, source builds, `zlib update`  |
 | [Usage](docs/usage.md)                     | Search, downloads, favorites, history          |
 | [Terminal interface](docs/tui.md)          | Commands and keyboard controls                 |
+| [Book covers](docs/covers.md)              | Supported terminals, limits and cache          |
+| [E-book metadata](docs/metadata.md)        | Lookup sources, editing, renaming, formats     |
 | [Configuration](docs/configuration.md)     | Domains, proxies, folders, configuration paths |
 | [Themes](docs/themes.md)                   | Available palettes and preview controls        |
 | [Kindle](docs/kindle.md)                   | SMTP setup and delivery                        |
+| [WeRead](docs/weread.md)                   | QR login and imports into WeRead               |
 | [MCP server](docs/mcp.md)                  | Client setup, flags, and tools for `zlib mcp`  |
 | [Troubleshooting](docs/troubleshooting.md) | Login and network problems                     |
 

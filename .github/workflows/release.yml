@@ -1,24 +1,66 @@
-name: release
+name: Release
 
 on:
   push:
     tags:
       - "v*"
 
-permissions:
-  contents: write
+# A job's permissions replace the workflow's, they do not add to them, so each
+# job lists everything it needs and the workflow grants nothing by default.
+permissions: {}
 
 jobs:
   goreleaser:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      # The release-commit gate reads ci-ok's check run.
+      checks: read
+      # Signing the build provenance.
+      id-token: write
+      attestations: write
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        # Actions in this job see the publishing tokens, so each is pinned to a
+        # commit SHA; Dependabot keeps the pins current.
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
 
+      # A tag can be pushed from any commit, but a release must be what main
+      # shipped through review: refuse a tag that is not the tip of main or whose
+      # commit did not pass ci-ok. There are no release branches, so an older
+      # commit is a stale checkout, not a deliberate release. ci-ok runs on every
+      # push to main, so a tag pushed right after a merge waits for it instead of
+      # failing.
+      - name: Require a reviewed, passing release commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git fetch --no-tags origin main
+          if [ "$GITHUB_SHA" != "$(git rev-parse origin/main)" ]; then
+            if git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+              behind=$(git rev-list --count "$GITHUB_SHA"..origin/main)
+              echo "::error::$GITHUB_REF_NAME is $behind commit(s) behind main; pull main and tag its tip"
+            else
+              echo "::error::$GITHUB_REF_NAME is not on main; tag a commit that has been merged"
+            fi
+            exit 1
+          fi
+          for attempt in $(seq 1 30); do
+            conclusion=$(gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/check-runs?check_name=ci-ok" \
+              --jq '.check_runs | map(select(.status == "completed")) | first | .conclusion // "pending"')
+            case "$conclusion" in
+              success) echo "ci-ok passed for $GITHUB_SHA"; exit 0 ;;
+              pending) echo "waiting for ci-ok ($attempt/30)"; sleep 30 ;;
+              *) echo "::error::ci-ok concluded $conclusion for $GITHUB_SHA"; exit 1 ;;
+            esac
+          done
+          echo "::error::ci-ok did not finish for $GITHUB_SHA within 15 minutes"
+          exit 1
+
       - name: Setup Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
 
@@ -28,7 +70,7 @@ jobs:
         run: go version
 
       - name: Run GoReleaser
-        uses: goreleaser/goreleaser-action@v7
+        uses: goreleaser/goreleaser-action@a4f02ab5355a589de60d917a659ce617ed19b3de # v7.3.0
         with:
           distribution: goreleaser
           version: "~> v2"
@@ -37,3 +79,14 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           HOMEBREW_TAP_GITHUB_TOKEN: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}
           WINGET_GITHUB_TOKEN: ${{ secrets.WINGET_GITHUB_TOKEN }}
+
+      # Signed build provenance ties every archive, MCP bundle and checksums.txt
+      # to this workflow run and commit; `gh attestation verify` checks it.
+      - name: Attest release artifacts
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: |
+            dist/*.tar.gz
+            dist/*.zip
+            dist/mcpb/*.mcpb
+            dist/checksums.txt

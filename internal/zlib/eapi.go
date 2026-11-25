@@ -200,6 +200,9 @@ func (c *Client) eapiRequest(ctx context.Context, method, path string, values ur
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	}
 	req.Header.Set("Accept", "application/json")
+	// Search rejects requests without a client source ("Access denied"),
+	// credentials or not; the other endpoints do not check it.
+	req.Header.Set("source", "android")
 	req.Header.Set("User-Agent", defaultUserAgent)
 	cookies := c.cookieSnapshot()
 	if userID := cookies["remix_userid"]; userID != "" {
@@ -317,11 +320,30 @@ func (c *Client) mapEAPIBook(item eapiBook) Book {
 	if !validISBN13(book.ISBN13) {
 		book.ISBN13 = ""
 	}
-	for _, value := range []string{eapiString(item.Identifier), eapiString(item.ISBN)} {
-		if normalized := normalizeISBN(value); validISBN10(normalized) && book.ISBN10 == "" {
-			book.ISBN10 = normalized
-		} else if validISBN13(normalized) && book.ISBN13 == "" {
-			book.ISBN13 = normalized
+	// An identifier field can list several values in one string, such as
+	// "9787229042066,7229042062" (an ISBN-13 and its ISBN-10), the ISBNs of
+	// several editions, or an Amazon ASIN like "B07S7CCQGL", which is not an
+	// ISBN. Each value is checked alone, and one with a bad check digit is
+	// skipped.
+	var isbn10s, isbn13s []string
+	for _, field := range []string{eapiString(item.Identifier), eapiString(item.ISBN)} {
+		for _, value := range strings.FieldsFunc(field, func(r rune) bool { return r == ',' || r == ';' || r == '|' || r == '\n' }) {
+			if normalized := normalizeISBN(value); validISBN10(normalized) {
+				isbn10s = append(isbn10s, normalized)
+			} else if validISBN13(normalized) {
+				isbn13s = append(isbn13s, normalized)
+			}
+		}
+	}
+	if book.ISBN13 == "" && len(isbn13s) > 0 {
+		book.ISBN13 = isbn13s[0]
+	}
+	// The card shows the two side by side as one book's pair, so the ISBN-10 is
+	// the one that belongs to the chosen ISBN-13. When the list names several
+	// editions, another edition's ISBN-10 is skipped and the pair is derived.
+	for _, v := range isbn10s {
+		if book.ISBN10 == "" && (book.ISBN13 == "" || isbn13FromCore("978"+v[:9]) == book.ISBN13) {
+			book.ISBN10 = v
 		}
 	}
 	if book.ISBN10 == "" && strings.HasPrefix(book.ISBN13, "978") && validISBN13(book.ISBN13) {

@@ -24,6 +24,8 @@ type historySelectModel struct {
 	client          *zlib.Client
 	items           []zlib.DownloadHistoryItem
 	details         bookDetailState
+	detailOpen      bool
+	switchDomain    bool // the user asked to change domain from a connection error
 	page            int
 	totalPages      int
 	hasNext         bool
@@ -34,6 +36,7 @@ type historySelectModel struct {
 	state           historyState
 	spinner         spinner.Model
 	selected        *zlib.DownloadHistoryItem // set when user presses Enter
+	kindleShortcut  bool
 	err             error
 	retryPage       int
 	quitting        bool
@@ -123,7 +126,7 @@ func (m historySelectModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
 		m.ensureCursorVisible()
-		return m, nil
+		return m, m.queueSelectedDetail()
 
 	case listLoadError:
 		m.err = msg.err
@@ -145,15 +148,27 @@ func (m historySelectModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case bookDetailReadyMsg:
 		if msg.sequence == m.details.sequence && msg.ref == m.selectedBookRef() && m.state == historyStateResults {
-			return m, m.details.fetch(m.client, msg.ref)
+			return m, tea.Batch(m.details.fetch(m.client, msg.ref), m.queueSelectedCover())
 		}
 		return m, nil
 
 	case bookDetailResultMsg:
 		m.details.store(msg)
-		return m, nil
+		return m, m.queueSelectedCover()
+
+	case bookCoverResultMsg:
+		m.details.storeCover(msg)
+		return m, m.queueSelectedCover()
+
+	case coverTickMsg:
+		ref, url := m.selectedCoverKey()
+		return m, m.details.advanceCoverTick(m.client, m.width, m.height, ref, url)
 
 	case tea.KeyPressMsg:
+		if msg.String() == "d" && m.err != nil && offersDomainSwitch(m.err, m.inShell, "/history") {
+			m.switchDomain = true
+			return m, tea.Quit
+		}
 		if m.err != nil && msg.String() != "r" && msg.String() != "esc" && msg.String() != "q" && msg.String() != "ctrl+c" {
 			return m, nil
 		}
@@ -172,6 +187,19 @@ func (m historySelectModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 			return m, nil
+		}
+		if m.detailOpen {
+			switch msg.String() {
+			case "esc", "i":
+				m.detailOpen = false
+				return m, nil
+			case "enter", "s", "ctrl+c":
+			default:
+				return m, nil
+			}
+		} else if msg.String() == "i" && m.state == historyStateResults && len(m.items) > 0 {
+			m.detailOpen = true
+			return m, m.queueSelectedDetail()
 		}
 		switch m.state {
 		case historyStateConfirmDelete:
@@ -233,6 +261,14 @@ func (m historySelectModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.state = historyStateLoading
 					return m, tea.Batch(m.spinner.Tick, m.fetchPage(m.page+1))
 				}
+			case "s":
+				if len(m.items) > 0 && m.cursor < len(m.items) {
+					item := m.items[m.cursor]
+					if item.DownloadURL != "" || historyCommandID(item) != "" {
+						m.selected, m.kindleShortcut = &item, true
+						return m, tea.Quit
+					}
+				}
 			case "enter":
 				if len(m.items) > 0 && m.cursor < len(m.items) {
 					item := m.items[m.cursor]
@@ -280,16 +316,23 @@ func (m *historySelectModel) ensureCursorVisible() {
 	m.listOffset = visibleListOffset(m.listOffset, m.cursor, len(m.items), rows)
 }
 
+func (m historySelectModel) domainSwitchRequest() (string, bool) {
+	return "/history", m.switchDomain
+}
+
 func (m historySelectModel) View() tea.View {
 	if m.err != nil {
-		return screenView(m.width, m.height, "Download history", "Could not load history", bookCell(m.err.Error()), "", uiKey("esc", "back"), uiKey("r", "retry"))
+		body, subtitle, bindings := loadErrorView(m.err, m.width, offersDomainSwitch(m.err, m.inShell, "/history"),
+			"Could not load history", uiKey("r", "retry"), uiKey("esc", "back"))
+		return screenView(m.width, m.height, "Download history", subtitle, body, "", bindings...)
 	}
-	list := searchSelectModel{feedTitle: "Download history", width: m.width, height: m.height, cursor: m.cursor, listOffset: m.listOffset, listAction: "d delete", inShell: m.inShell, spinner: m.spinner, state: searchStateResults, details: m.details}
+	list := searchSelectModel{detailOpen: m.detailOpen, feedTitle: "Download history", width: m.width, height: m.height, cursor: m.cursor, listOffset: m.listOffset, listAction: "d delete", inShell: m.inShell, spinner: m.spinner, state: searchStateResults, details: m.details}
 	if m.state == historyStateLoading {
 		list.state = searchStateLoading
 	}
 	for _, item := range m.items {
-		book := zlib.Book{ID: item.ID, Hash: item.Hash, URL: item.URL, Name: item.Name, Authors: item.Authors, Extension: item.Extension, Size: item.Size}
+		book := zlib.Book{ID: item.ID, Hash: item.Hash, URL: item.URL, Name: item.Name, Authors: item.Authors, Extension: item.Extension, Size: item.Size,
+			ISBN: item.ISBN, ISBN10: item.ISBN10, ISBN13: item.ISBN13}
 		list.books = append(list.books, m.details.book(historyCommandID(item), book))
 	}
 	status := pageLabel(m.page, m.totalPages)

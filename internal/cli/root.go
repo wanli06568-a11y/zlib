@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strings"
 	"syscall"
 
@@ -19,7 +20,7 @@ import (
 
 var rootCmd = &cobra.Command{
 	Use:               "zlib",
-	Short:             "Search, download, and send Z-Library books to Kindle",
+	Short:             "Search, download, and send Z-Library books to Kindle; look up and edit e-book metadata",
 	Version:           zlib.Version,
 	SilenceUsage:      true,
 	SilenceErrors:     true,
@@ -66,6 +67,9 @@ func loadSessionClient() (*zlib.Client, error) {
 	}
 	c.SetDomain(allowedDomain)
 	c.SetCookies(session.Cookies)
+	if dir, err := os.UserCacheDir(); err == nil {
+		c.SetCoverCacheDir(filepath.Join(dir, "zlib", "covers"))
+	}
 	return c, nil
 }
 
@@ -99,7 +103,10 @@ func formatCLIError(err error) string {
 	if errors.Is(err, errCancelled) {
 		return colorRed(symbolError) + " Cancelled"
 	}
-	var delivery *kindleDeliveryError
+	var delivery *deliveryError
+	if hint := wereadErrorHint(err, wereadLoginCLI); hint != "" {
+		return prefix + " " + safeText(err.Error()) + ". " + hint
+	}
 	switch {
 	// SMTP errors already name the server, port and TLS mode; a generic
 	// network message would hide whether TLS, auth or the port is wrong.

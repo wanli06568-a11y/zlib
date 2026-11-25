@@ -34,6 +34,8 @@ type searchSelectModel struct {
 	opts            *zlib.SearchOptions
 	books           []zlib.Book
 	details         bookDetailState
+	detailOpen      bool
+	switchDomain    bool // the user asked to change domain from a connection error
 	page            int
 	loadingPage     int
 	totalPages      int
@@ -44,6 +46,7 @@ type searchSelectModel struct {
 	spinner         spinner.Model
 	reducedMotion   bool
 	selectedID      string // set when user presses Enter
+	kindleShortcut  bool   // download to the default directory, then send
 	confirmDownload bool
 	downloadFocused bool
 	err             error
@@ -177,7 +180,7 @@ func (m searchSelectModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width = msg.Width
 		m.height = msg.Height
 		m.ensureCursorVisible()
-		return m, nil
+		return m, m.queueSelectedDetail()
 
 	case listLoadError:
 		m.err = msg.err
@@ -199,15 +202,28 @@ func (m searchSelectModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case bookDetailReadyMsg:
 		if msg.sequence == m.details.sequence && msg.ref == m.selectedBookRef() && m.state == searchStateResults {
-			return m, m.details.fetch(m.client, msg.ref)
+			return m, tea.Batch(m.details.fetch(m.client, msg.ref), m.queueSelectedCover())
 		}
 		return m, nil
 
 	case bookDetailResultMsg:
 		m.details.store(msg)
-		return m, nil
+		return m, m.queueSelectedCover()
+
+	case bookCoverResultMsg:
+		m.details.storeCover(msg)
+		return m, m.queueSelectedCover()
+
+	case coverTickMsg:
+		ref, url := m.selectedCoverKey()
+		return m, m.details.advanceCoverTick(m.client, m.width, m.height, ref, url)
 
 	case tea.KeyPressMsg:
+		if resume, _ := m.domainSwitchRequest(); msg.String() == "d" && m.err != nil && m.state != searchStateFilter &&
+			offersDomainSwitch(m.err, m.inShell, resume) {
+			m.switchDomain = true
+			return m, tea.Quit
+		}
 		if m.err != nil && m.state != searchStateFilter && msg.String() != "r" && msg.String() != "/" && msg.String() != "esc" && msg.String() != "q" && msg.String() != "ctrl+c" {
 			return m, nil
 		}
@@ -225,6 +241,19 @@ func (m searchSelectModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 			return m, nil
+		}
+		if m.detailOpen {
+			switch msg.String() {
+			case "esc", "i":
+				m.detailOpen = false
+				return m, nil
+			case "enter", "s", "ctrl+c":
+			default:
+				return m, nil
+			}
+		} else if msg.String() == "i" && m.state == searchStateResults && len(m.books) > 0 {
+			m.detailOpen = true
+			return m, m.queueSelectedDetail()
 		}
 		switch m.state {
 		case searchStateResults:
@@ -271,6 +300,13 @@ func (m searchSelectModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.state = searchStateLoading
 					m.loadingPage = m.page + 1
 					return m, m.loadPage(m.loadingPage)
+				}
+			case "s":
+				if len(m.books) > 0 && m.cursor < len(m.books) {
+					if id := bookCommandID(m.books[m.cursor]); id != "" {
+						m.selectedID, m.kindleShortcut = id, true
+						return m, tea.Quit
+					}
 				}
 			case "enter":
 				if len(m.books) > 0 && m.cursor < len(m.books) {
@@ -329,14 +365,23 @@ func (m searchSelectModel) View() tea.View {
 		if title == "" {
 			title = "Search: " + bookCell(m.query)
 		}
+		resume, _ := m.domainSwitchRequest()
+		canSwitch := offersDomainSwitch(m.err, m.inShell, resume)
 		if m.feed == nil && m.feedPage == nil {
 			searchKey := "/"
 			if m.inShell {
 				searchKey = "ctrl+f"
 			}
-			v = screenView(m.width, m.height, title, fmt.Sprintf("Could not load page %d", m.retryPage), m.errorBody(), "Retry or change the search", uiKey("r", "retry"), uiKey(searchKey, "search"), uiKey("esc", "back"))
+			body, subtitle, bindings := loadErrorView(m.err, m.width, canSwitch, fmt.Sprintf("Could not load page %d", m.retryPage),
+				uiKey("r", "retry"), uiKey(searchKey, "search"), uiKey("esc", "back"))
+			status := "Retry or change the search"
+			if subtitle == "Connection problem" {
+				status = ""
+			}
+			v = screenView(m.width, m.height, title, subtitle, body, status, bindings...)
 		} else {
-			v = screenView(m.width, m.height, title, "Could not load books", m.errorBody(), "", uiKey("r", "retry"), uiKey("esc", "back"))
+			body, subtitle, bindings := loadErrorView(m.err, m.width, canSwitch, "Could not load books", uiKey("r", "retry"), uiKey("esc", "back"))
+			v = screenView(m.width, m.height, title, subtitle, body, "", bindings...)
 		}
 	}
 	if m.confirmDownload {
@@ -392,35 +437,49 @@ func (m searchSelectModel) listView() tea.View {
 
 // interactiveSearch runs the filter form and then the result list. The caller
 // loads c first, so a signed-out user never fills in the form for nothing.
-func interactiveSearch(c *zlib.Client, opts *zlib.SearchOptions, fullTitle bool) (string, error) {
+func interactiveSearch(c *zlib.Client, opts *zlib.SearchOptions, fullTitle bool) (searchSelectModel, error) {
 	form, err := runSearchFilterForm(newSearchFilterForm("", opts))
 	if err != nil {
-		return "", err
+		return searchSelectModel{}, err
 	}
 	if !form.accepted {
-		return "", nil
+		return searchSelectModel{}, nil
 	}
 	query := form.query
 	opts = form.searchOptions()
 
-	p := tea.NewProgram(newSearchSelectModel(query, c, opts, fullTitle))
-	result, err := p.Run()
+	result, err := runCoverProgram(newSearchSelectModel(query, c, opts, fullTitle))
 	if err != nil {
-		return "", err
+		return searchSelectModel{}, err
 	}
 
 	sm := result.(searchSelectModel)
 	if sm.err != nil {
-		return "", sm.err
+		return sm, sm.err
 	}
-	return sm.selectedID, nil
+	return sm, nil
 }
 
 // errorBody wraps a request error to the terminal width instead of cutting
 // off the reason, which usually sits at the end of a network error.
-func (m searchSelectModel) errorBody() string {
-	style := lipgloss.NewStyle().Foreground(currentTheme.Error)
-	return strings.Join(wrapIndented(symbolError+" "+bookCell(m.err.Error()), m.width, "  ", style), "\n")
+// domainSwitchRequest names the shell command that reopens this list after the
+// domain changes. Search keeps its query but not its filters; a list that no
+// command can recreate returns "" and does not offer the domain key.
+func (m searchSelectModel) domainSwitchRequest() (string, bool) {
+	switch {
+	case m.feed == nil && m.feedPage == nil:
+		if m.query == "" {
+			return "", m.switchDomain
+		}
+		return "/search " + m.query, m.switchDomain
+	case m.feedTitle == "Favorites":
+		return "/favorites", m.switchDomain
+	case m.feedTitle == "Recommended":
+		return "/recommended", m.switchDomain
+	case m.feedTitle == "Most popular":
+		return "/most-popular", m.switchDomain
+	}
+	return "", m.switchDomain
 }
 
 // withFilterSummary appends active filters to a list status line while they

@@ -39,13 +39,22 @@ Some formats are owned by other tools, so the rule does not apply to them.
 | --- | --- | --- |
 | Release asset names | `zlib_0.0.10_linux_x86_64.tar.gz` | GoReleaser's default name. `zlib update` in every released version builds this name from the tag, so renaming the assets would break updates from those versions. |
 | winget and Homebrew manifests | `0.0.10` | These package managers require bare versions. GoReleaser writes them. |
-| Plugin manifests (`plugins/zlib/.claude-plugin/plugin.json`, `.codex-plugin/plugin.json`) | `0.2.0` | The plugin has its own version, separate from the CLI. The manifest schemas expect bare SemVer. |
-| `go.mod` `go` line, `@version` module queries and third-party versions | `go 1.26.10`, `govulncheck@v1.9.0` | These follow the upstream tool's syntax. |
+| MCP Registry and MCP Bundles | `0.0.10` in `server.json` and `manifest.json`; bundles named `zlib_0.0.10_linux_x86_64.mcpb` | The registry and the bundle manifest take bare semantic versions ([MCP Registry](mcp-registry.md#versioning)) |
+| Plugin manifests (`plugins/zlib/.claude-plugin/plugin.json`, `.codex-plugin/plugin.json`) | `0.3.0` | The plugin has its own version, separate from the CLI. The manifest schemas expect bare SemVer. |
+| `go.mod` `go` line, `@version` module queries and third-party versions | `go 1.26.11`, `govulncheck@v1.9.0` | These follow the upstream tool's syntax. |
 
 ## Releasing
 
-1. Tag the release commit on `main` with `git tag vX.Y.Z`.
-2. Push the tag with `git push origin vX.Y.Z`. The release workflow runs
-   GoReleaser.
+1. Pull `main` and tag its tip with an annotated tag:
+   `git tag -a vX.Y.Z -m vX.Y.Z`.
+2. Push the tag with `git push origin vX.Y.Z`. The release workflow first
+   requires the tagged commit to be the tip of `main` and to have passed
+   `ci-ok` (waiting up to 15 minutes if the run is still going), then runs
+   GoReleaser. A tag that fails the gate publishes nothing; delete it, pull
+   `main` and tag the tip.
 3. Download one archive and run `zlib version`. It must print
    `zlib version vX.Y.Z`.
+
+Release builds are reproducible: `-trimpath`, and a build date and file time
+taken from the tagged commit, so rebuilding a tag gives byte-identical binaries
+for a given Go release.

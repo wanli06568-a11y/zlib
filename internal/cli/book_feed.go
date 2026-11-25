@@ -5,7 +5,6 @@ import (
 	"io"
 	"strings"
 
-	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"charm.land/lipgloss/v2/table"
 	zlib "github.com/heartleo/zlib/internal/zlib"
@@ -35,8 +34,7 @@ func newBookFeedCommand(name, description, summary string, load func(*zlib.Clien
 			jsonOut, _ := cmd.Flags().GetBool("json")
 			if !jsonOut && isInteractive() {
 				model := newBookFeedSelectModel(summary, fetch).withBookDetails(c)
-				p := tea.NewProgram(model)
-				result, err := p.Run()
+				result, err := runCoverProgram(model)
 				if err != nil {
 					return err
 				}
@@ -51,8 +49,10 @@ func newBookFeedCommand(name, description, summary string, load func(*zlib.Clien
 				if err != nil {
 					return err
 				}
-				sendToKindle, _ := cmd.Flags().GetBool("send-to-kindle")
-				return runDownload(newDownloadModel(selected.selectedID, dir, c), sendToKindle, cmd)
+				deliver := deliveryFlags(cmd)
+				download := newDownloadModel(selected.selectedID, dir, c)
+				download.autoKindle = selected.kindleShortcut
+				return runDownload(download, deliver, cmd)
 			}
 
 			books, err := fetch()
@@ -74,7 +74,7 @@ func newBookFeedCommand(name, description, summary string, load func(*zlib.Clien
 	}
 	cmd.Flags().Bool("json", false, "Print books as JSON")
 	addDestDirFlag(cmd)
-	cmd.Flags().Bool("send-to-kindle", false, "Send the downloaded book to Kindle")
+	addDeliveryFlags(cmd)
 	return cmd
 }
 

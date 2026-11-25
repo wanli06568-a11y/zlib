@@ -5,7 +5,6 @@ import (
 	"os"
 	"strings"
 
-	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"charm.land/lipgloss/v2/table"
 	"github.com/heartleo/zlib/internal/zlib"
@@ -24,7 +23,7 @@ var historyCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		sendToKindle, _ := cmd.Flags().GetBool("send-to-kindle")
+		deliver := deliveryFlags(cmd)
 		formatFilter, _ := cmd.Flags().GetString("format")
 		jsonOut, _ := cmd.Flags().GetBool("json")
 		deleteID, _ := cmd.Flags().GetString("delete")
@@ -50,20 +49,19 @@ var historyCmd = &cobra.Command{
 				return err
 			}
 			if item.DownloadURL == "" {
-				return runDownload(newDownloadModel(historyCommandID(item), dir, c), sendToKindle, cmd)
+				return runDownload(newDownloadModel(historyCommandID(item), dir, c), deliver, cmd)
 			}
 
 			bookName := item.Name
 			if bookName == "" {
 				bookName = downloadID
 			}
-			return runDownload(historyDirectDownload(item, bookName, dir, c), sendToKindle, cmd)
+			return runDownload(historyDirectDownload(item, bookName, dir, c), deliver, cmd)
 		}
 
 		// No flags: interactive mode (--json always forces the static path)
 		if !cmd.Flags().Changed("page") && formatFilter == "" && !jsonOut && isInteractive() {
-			p := tea.NewProgram(newHistorySelectModel(c))
-			result, err := p.Run()
+			result, err := runCoverProgram(newHistorySelectModel(c))
 			if err != nil {
 				return err
 			}
@@ -76,13 +74,17 @@ var historyCmd = &cobra.Command{
 			}
 			item := hm.selected
 			if item.DownloadURL == "" {
-				return runDownload(newDownloadModel(historyCommandID(*item), dir, c), sendToKindle, cmd)
+				model := newDownloadModel(historyCommandID(*item), dir, c)
+				model.autoKindle = hm.kindleShortcut
+				return runDownload(model, deliver, cmd)
 			}
 			bookName := item.Name
 			if bookName == "" {
 				bookName = bookIDFromURL(item.URL)
 			}
-			return runDownload(historyDirectDownload(*item, bookName, dir, c), sendToKindle, cmd)
+			model := historyDirectDownload(*item, bookName, dir, c)
+			model.autoKindle = hm.kindleShortcut
+			return runDownload(model, deliver, cmd)
 		}
 
 		result, err := loadHistoryPage(cmd.Context(), c, page, formatFilter)
@@ -158,7 +160,7 @@ func init() {
 	historyCmd.Flags().IntP("page", "p", 1, "Page number")
 	historyCmd.Flags().StringP("download", "D", "", "Download a book from history by ID")
 	addDestDirFlag(historyCmd)
-	historyCmd.Flags().Bool("send-to-kindle", false, "Send the downloaded book to Kindle")
+	addDeliveryFlags(historyCmd)
 	historyCmd.Flags().StringP("format", "f", "", "Filter by file format, e.g. epub")
 	historyCmd.Flags().Bool("json", false, "Print history as JSON")
 	historyCmd.Flags().String("delete", "", "Delete a history entry on Z-Library by ID or id:hash; local files stay")
@@ -166,6 +168,7 @@ func init() {
 	historyCmd.MarkFlagsMutuallyExclusive("delete", "page")
 	historyCmd.MarkFlagsMutuallyExclusive("delete", "format")
 	historyCmd.MarkFlagsMutuallyExclusive("delete", "send-to-kindle")
+	historyCmd.MarkFlagsMutuallyExclusive("delete", "send-to-weread")
 	rootCmd.AddCommand(historyCmd)
 }
 

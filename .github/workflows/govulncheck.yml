@@ -1,7 +1,9 @@
-name: govulncheck
+name: Vulnerability Scan
 
 # New vulnerabilities are published without any change to this repository,
-# so scan main daily. Pushes and pull requests run the same scan in ci.yml.
+# so scan main daily. ci.yml runs the same scan on pushes and pull requests
+# that can affect the Go build (scripts/ci-changes.mjs decides); this daily
+# run also covers the changes that skipped it.
 on:
   schedule:
     - cron: "17 3 * * *"
@@ -14,11 +16,11 @@ jobs:
   govulncheck:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # setup-go installs exactly the go line of go.mod, which is also the
       # toolchain releases are built with.
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
 

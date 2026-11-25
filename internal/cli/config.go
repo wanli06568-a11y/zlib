@@ -24,16 +24,13 @@ func settingsCommand(name, page, key, description string) *cobra.Command {
 		}
 		jsonOut, _ := cmd.Flags().GetBool("json")
 		if jsonOut || !isInteractive() {
-			values := m.values
-			if page == "network" || page == "domain" {
-				values = values[:2]
-			} else if page == "download" {
-				values = values[2:4]
-			} else if page == "kindle" {
-				values = values[4:]
+			listPage := page
+			if page == "domain" {
+				listPage = "network"
 			}
 			var output []settingValue
-			for _, v := range values {
+			for _, k := range settingsPageKeys(listPage) {
+				v := m.value(k)
 				if page == "domain" && v.Key != zlib.EnvDomain {
 					continue
 				}
@@ -60,7 +57,9 @@ func settingsCommand(name, page, key, description string) *cobra.Command {
 // when set.
 func runSettingsTUI(m settingsModel, key string) error {
 	initial := m.Init()
-	if key != "" {
+	if key == wereadAccountKey {
+		initial = m.openWeReadAccount()
+	} else if key != "" {
 		initial = m.edit(key)
 	}
 	_, err := tea.NewProgram(settingsStart{settingsModel: m, initial: initial}).Run()
@@ -75,14 +74,20 @@ type settingsStart struct {
 func (m settingsStart) Init() tea.Cmd { return m.initial }
 
 func init() {
-	root := settingsCommand("config", "home", "", "View or edit network, download, and Kindle settings")
+	root := settingsCommand("config", "home", "", "View or edit network, download, search, Kindle, WeRead and metadata settings")
 	root.PersistentFlags().Bool("json", false, "Print settings and their sources as JSON")
 	network := settingsCommand("network", "network", "", "Set domain and proxy")
 	network.AddCommand(settingsCommand("domain", "domain", "", "Set Z-Library domain"), settingsCommand("proxy", "network", zlib.EnvProxy, "Set proxy URL"))
 	download := settingsCommand("download", "download", "", "Set download directory and retries")
 	download.AddCommand(settingsCommand("directory", "download", downloadDirEnvVar, "Set default download directory"), settingsCommand("retries", "download", zlib.EnvRetries, "Set download retry count"))
+	search := settingsCommand("search", "search", "", "Set default search formats")
+	search.AddCommand(settingsCommand("extensions", "search", searchExtensionsEnv, "Set default search extensions; empty allows any format"))
 	kindle := settingsCommand("kindle", "kindle", "", "Set Kindle address and SMTP")
 	kindle.AddCommand(settingsCommand("to", "kindle", kindleToKey, "Set Kindle address"), settingsCommand("from", "kindle", kindleFromKey, "Set sender address"), settingsCommand("host", "kindle", kindleHostKey, "Set SMTP host"), settingsCommand("port", "kindle", kindlePortKey, "Set SMTP port"), settingsCommand("security", "kindle", kindleSecurityKey, "Set SMTP security: tls or starttls"))
-	root.AddCommand(network, download, kindle)
+	wereadSettings := settingsCommand("weread", "weread", "", "Show the WeRead login and set its proxy")
+	wereadSettings.AddCommand(settingsCommand("account", "weread", wereadAccountKey, "Log in to or out of WeRead"), settingsCommand("proxy", "weread", wereadProxyEnv, "Set the WeRead proxy: a URL, direct, or empty for the system proxy"))
+	metadata := settingsCommand("metadata", "metadata", "", "Set the metadata lookup sources and the Google Books API key")
+	metadata.AddCommand(settingsCommand("sources", "metadata", metaSourcesEnv, "Set the metadata lookup sources; empty picks them by book language"), settingsCommand("filename", "metadata", nameLayoutEnv, "Set the order of a file name: title-author, author-title or title-paren; empty restores title-author"), settingsCommand("results", "metadata", metaResultsEnv, "Set how many matches a lookup lists (1 to 50); empty restores 10"), settingsCommand("google-key", "metadata", googleBooksKeyEnv, "Set or remove the Google Books API key"), settingsCommand("weread-key", "metadata", wereadAPIKeyEnv, "Set or remove the WeRead API key (the WeRead skill key) the weread source needs"))
+	root.AddCommand(network, download, search, kindle, wereadSettings, metadata)
 	rootCmd.AddCommand(root)
 }

@@ -22,9 +22,19 @@ builds:
     goarch:
       - amd64
       - arm64
+    # Rebuilding a tag must give the same binary: no checkout paths in the
+    # binary, a file time and a build date taken from the commit, not the clock.
+    flags:
+      - -trimpath
+    mod_timestamp: "{{ .CommitTimestamp }}"
     ldflags:
       # {{.Version}} drops the tag's v; zlib reports versions as vX.Y.Z.
-      - -s -w -X github.com/heartleo/zlib/internal/zlib.Version=v{{.Version}} -X github.com/heartleo/zlib/internal/zlib.Commit={{.Commit}} -X github.com/heartleo/zlib/internal/zlib.Date={{.Date}}
+      - -s -w -X github.com/heartleo/zlib/internal/zlib.Version=v{{.Version}} -X github.com/heartleo/zlib/internal/zlib.Commit={{.Commit}} -X github.com/heartleo/zlib/internal/zlib.Date={{.CommitDate}}
+    hooks:
+      post:
+        # One MCP Bundle per platform, uploaded with the release. The MCP
+        # Registry entry (docs/mcp-registry.md) points at these files.
+        - cmd: go run ./scripts/mcpb bundle --binary "{{ .Path }}" --os {{ .Os }} --arch {{ .Arch }} --version {{ .Version }} --out dist/mcpb
 
 archives:
   - id: zlib
@@ -46,9 +56,13 @@ archives:
 
 checksum:
   name_template: checksums.txt
+  extra_files:
+    - glob: dist/mcpb/*.mcpb
 
 brews:
-  - name: zlib
+  # Named zlib-cli because homebrew/core already ships a zlib formula; the
+  # installed binary stays zlib.
+  - name: zlib-cli
     ids:
       - zlib
     repository:
@@ -58,6 +72,10 @@ brews:
     homepage: "https://github.com/heartleo/zlib"
     description: "A CLI for Z-Library"
     license: "MIT"
+    caveats: |
+      The Homebrew formula is now zlib-cli. For future installations, use:
+        brew install heartleo/tap/zlib-cli
+      The executable is still named zlib.
     install: |
       bin.install "zlib"
     test: |
@@ -89,8 +107,29 @@ winget:
 
 changelog:
   sort: asc
+  # Sections for readers, a line per change without the commit hash.
+  format: "{{ .Message }}"
+  groups:
+    - title: Features
+      regexp: '^feat(\(.+\))?!?:'
+      order: 0
+    - title: Fixes
+      regexp: '^fix(\(.+\))?!?:'
+      order: 1
+    - title: Performance
+      regexp: '^perf(\(.+\))?!?:'
+      order: 2
+    - title: Build
+      regexp: '^build(\(.+\))?!?:'
+      order: 3
+    # Anything the filters below keep and no group claims, such as a revert,
+    # still reaches the notes.
+    - title: Others
+      order: 999
   filters:
     exclude:
+      # The plugin has its own version; its bumps say nothing about the CLI.
+      - '^build\(plugin\)!?:'
       - '^docs(\(.+\))?!?:'
       - '^test(\(.+\))?!?:'
       - '^chore(\(.+\))?!?:'
@@ -102,4 +141,6 @@ changelog:
 release:
   draft: true
   replace_existing_draft: true
+  extra_files:
+    - glob: dist/mcpb/*.mcpb
 

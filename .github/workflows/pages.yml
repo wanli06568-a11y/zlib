@@ -1,4 +1,4 @@
-name: pages
+name: Pages
 
 on:
   push:
@@ -9,6 +9,11 @@ on:
       - "site/**"
       - "scripts/build-zh.mjs"
       - ".github/workflows/pages.yml"
+  # The site shows the latest release version, so publishing a release
+  # redeploys it. The run's ref is the tag, so the github-pages environment
+  # must allow tags matching v* besides main (site/README.md).
+  release:
+    types: [published]
   workflow_dispatch:
 
 permissions:
@@ -34,13 +39,17 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
-      - uses: actions/checkout@v4
+      # A release event would check out the tagged commit; deploy the default
+      # branch instead, so a release never rolls back newer site changes.
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.repository.default_branch }}
 
       # enablement defaults to false, which fails with "Get Pages site failed"
       # on a repository that has never had Pages turned on. Setting it true
       # makes this step create the Pages site with build_type: workflow, so
       # there is nothing to click in Settings beforehand.
-      - uses: actions/configure-pages@v5
+      - uses: actions/configure-pages@v6
         with:
           enablement: true
 
@@ -50,7 +59,24 @@ jobs:
       # The script fails loudly if it cannot find what it rewrites, which is
       # what keeps a markup change from silently shipping a stale or
       # half-translated page.
-      - uses: actions/setup-node@v4
+      # The `zlib update` transcript names the latest published release.
+      # Stamp it before build-zh.mjs so the Chinese page gets it too. A
+      # missing placeholder or an odd tag fails the deploy rather than
+      # shipping a wrong version.
+      - name: Stamp the latest release version
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version=$(gh release view --repo "$GITHUB_REPOSITORY" --json tagName --jq .tagName)
+          if ! printf '%s\n' "$version" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "unexpected latest release tag: '$version'" >&2
+            exit 1
+          fi
+          grep -q '{{ZLIB_VERSION}}' site/index.html
+          sed -i "s/{{ZLIB_VERSION}}/$version/g" site/index.html
+          echo "stamped $version"
+
+      - uses: actions/setup-node@v7
         with:
           node-version: "20"
       - run: node scripts/build-zh.mjs
@@ -58,9 +84,9 @@ jobs:
       # site/ is served verbatim: no Jekyll runs on this path, so there is
       # nothing to escape and no .nojekyll to add. A CNAME file is ignored
       # for custom-workflow deploys; the domain lives in Pages settings.
-      - uses: actions/upload-pages-artifact@v3
+      - uses: actions/upload-pages-artifact@v5
         with:
           path: site
 
       - id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5

@@ -1,5 +1,20 @@
 package zlib
 
+import (
+	"encoding/json"
+	"strings"
+)
+
+// MarshalJSON prints the ID as the id:hash reference `zlib download` takes, so
+// no command that lists books can print a bare ID by forgetting a rewrite.
+func (b Book) MarshalJSON() ([]byte, error) {
+	type plain Book
+	if b.ID != "" && b.Hash != "" && !strings.Contains(b.ID, ":") {
+		b.ID += ":" + b.Hash
+	}
+	return json.Marshal(plain(b))
+}
+
 type Book struct {
 	ID          string   `json:"id"`
 	Hash        string   `json:"hash,omitempty"`
@@ -31,10 +46,9 @@ type SearchResult struct {
 }
 
 type DownloadLimit struct {
-	DailyAmount    int    `json:"daily_amount"`
-	DailyAllowed   int    `json:"daily_allowed"`
-	DailyRemaining int    `json:"daily_remaining"`
-	DailyReset     string `json:"daily_reset"`
+	DailyAmount    int `json:"daily_amount"`
+	DailyAllowed   int `json:"daily_allowed"`
+	DailyRemaining int `json:"daily_remaining"`
 }
 
 // UserProfile contains the account fields safe to display or serialize.
@@ -64,6 +78,11 @@ type DownloadHistoryItem struct {
 	Extension   string   `json:"extension,omitempty"`
 	Size        string   `json:"size,omitempty"`
 	Date        string   `json:"date"`
+	// ISBN, ISBN10 and ISBN13 are what the list response says, with the same
+	// meaning and normalization as on Book.
+	ISBN   string `json:"isbn,omitempty"`
+	ISBN10 string `json:"isbn_10,omitempty"`
+	ISBN13 string `json:"isbn_13,omitempty"`
 }
 
 type DownloadHistoryResult struct {

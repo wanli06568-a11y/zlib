@@ -3,7 +3,7 @@ set -e
 
 REPO="heartleo/zlib"
 BIN="zlib"
-INSTALL_DIR="/usr/local/bin"
+INSTALL_DIR="${ZLIB_INSTALL_DIR:-/usr/local/bin}"
 
 # Detect OS
 OS=$(uname -s | tr '[:upper:]' '[:lower:]')
@@ -37,7 +37,35 @@ TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
 
 curl -fsSL "$URL" -o "$TMP/$ARCHIVE"
+curl -fsSL "https://github.com/${REPO}/releases/download/${VERSION}/checksums.txt" -o "$TMP/checksums.txt"
+
+# Install nothing that does not match the release's checksums.txt, as
+# `zlib update` does.
+if command -v sha256sum >/dev/null 2>&1; then
+  ACTUAL=$(sha256sum "$TMP/$ARCHIVE" | awk '{print $1}')
+elif command -v shasum >/dev/null 2>&1; then
+  ACTUAL=$(shasum -a 256 "$TMP/$ARCHIVE" | awk '{print $1}')
+else
+  echo "Neither sha256sum nor shasum was found; cannot verify the download" >&2
+  exit 1
+fi
+EXPECTED=$(awk -v name="$ARCHIVE" '$2 == name { print $1 }' "$TMP/checksums.txt")
+if [ -z "$EXPECTED" ]; then
+  echo "checksums.txt does not list ${ARCHIVE}; nothing was installed" >&2
+  exit 1
+fi
+if [ "$EXPECTED" != "$ACTUAL" ]; then
+  echo "Checksum mismatch for ${ARCHIVE}; nothing was installed" >&2
+  exit 1
+fi
+
 tar -xzf "$TMP/$ARCHIVE" -C "$TMP"
+
+# /usr/local/bin does not exist on every Mac, for example one that only has
+# Homebrew under /opt/homebrew.
+if [ ! -d "$INSTALL_DIR" ]; then
+  mkdir -p "$INSTALL_DIR" 2>/dev/null || sudo mkdir -p "$INSTALL_DIR"
+fi
 
 if [ -w "$INSTALL_DIR" ]; then
   mv "$TMP/$BIN" "$INSTALL_DIR/$BIN"
@@ -46,4 +74,4 @@ else
 fi
 
 echo "Installed to ${INSTALL_DIR}/${BIN}"
-${INSTALL_DIR}/${BIN} --version
+"${INSTALL_DIR}/${BIN}" --version

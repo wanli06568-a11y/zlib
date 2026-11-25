@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -23,13 +24,17 @@ func TestSettingsCommandRoutesAndJSON(t *testing.T) {
 		args  []string
 		count int
 	}{
-		{[]string{"config"}, 9}, {[]string{"config", "network"}, 2},
+		{[]string{"config"}, 17}, {[]string{"config", "network"}, 2},
+		{[]string{"config", "metadata"}, 5}, {[]string{"config", "metadata", "google-key"}, 1}, {[]string{"config", "metadata", "sources"}, 1}, {[]string{"config", "metadata", "results"}, 1}, {[]string{"config", "metadata", "filename"}, 1}, {[]string{"config", "metadata", "weread-key"}, 1},
 		{[]string{"config", "network", "domain"}, 1}, {[]string{"config", "network", "proxy"}, 1},
 		{[]string{"config", "download"}, 2}, {[]string{"config", "download", "directory"}, 1},
 		{[]string{"config", "download", "retries"}, 1},
+		{[]string{"config", "search"}, 1}, {[]string{"config", "search", "extensions"}, 1},
 		{[]string{"config", "kindle"}, 5}, {[]string{"config", "kindle", "to"}, 1},
 		{[]string{"config", "kindle", "from"}, 1}, {[]string{"config", "kindle", "host"}, 1},
 		{[]string{"config", "kindle", "port"}, 1}, {[]string{"config", "kindle", "security"}, 1},
+		{[]string{"config", "weread"}, 2}, {[]string{"config", "weread", "account"}, 1},
+		{[]string{"config", "weread", "proxy"}, 1},
 	} {
 		out, err := executeRootForTest(t, append(tc.args, "--json")...)
 		if err != nil {
@@ -52,7 +57,7 @@ func TestSettingsSaveValidationAndLiveReload(t *testing.T) {
 	s := testSettingsStore(t)
 	t.Setenv(zlib.EnvRetries, "")
 	m, _ := newSettingsModel(t.Context(), s, "download")
-	m.edit(zlib.EnvRetries)
+	m.editText(zlib.EnvRetries)
 	m.input.SetValue("-1")
 	next, _ := m.Update(key("enter"))
 	m = next.(settingsModel)
@@ -65,7 +70,7 @@ func TestSettingsSaveValidationAndLiveReload(t *testing.T) {
 	if m.value(zlib.EnvRetries).Value != "5" || os.Getenv(zlib.EnvRetries) != "5" {
 		t.Fatal("saved setting not active")
 	}
-	m.edit(zlib.EnvRetries)
+	m.editText(zlib.EnvRetries)
 	m.input.SetValue("")
 	next, _ = m.Update(key("enter"))
 	m = next.(settingsModel)
@@ -83,7 +88,7 @@ func TestSettingsSaveValidationAndLiveReload(t *testing.T) {
 func TestSettingsSaveFailureKeepsDraft(t *testing.T) {
 	s := testSettingsStore(t)
 	m, _ := newSettingsModel(t.Context(), s, "download")
-	m.edit(zlib.EnvRetries)
+	m.editText(zlib.EnvRetries)
 	m.input.SetValue("8")
 	if err := os.Mkdir(s.global, 0700); err != nil {
 		t.Fatal(err)
@@ -189,7 +194,7 @@ func TestSettingsSourceAndRedaction(t *testing.T) {
 }
 
 func TestSettingsNavigationCancelAndViewport(t *testing.T) {
-	for _, page := range []string{"home", "network", "download", "kindle", "domain"} {
+	for _, page := range []string{"home", "network", "download", "search", "kindle", "domain"} {
 		for _, size := range [][2]int{{80, 24}, {40, 16}, {32, 12}, {20, 5}} {
 			m, err := newSettingsModel(t.Context(), testSettingsStore(t), page)
 			if err != nil {
@@ -208,7 +213,7 @@ func TestSettingsNavigationCancelAndViewport(t *testing.T) {
 	}
 	s := testSettingsStore(t)
 	m, _ := newSettingsModel(t.Context(), s, "download")
-	m.edit(zlib.EnvRetries)
+	m.editText(zlib.EnvRetries)
 	m.input.SetValue("7")
 	next, _ := m.Update(key("esc"))
 	m = next.(settingsModel)
@@ -283,7 +288,8 @@ func TestSettingsKindleSaveAndNavigation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	m.cursor = 4
+	m.cursor = slices.Index(settingsPageKeys("home"), kindleToKey)
+	kindleCursor := m.cursor
 	next, _ := m.Update(key("enter"))
 	m = next.(settingsModel)
 	if m.page != "edit" || m.key != kindleToKey {
@@ -292,14 +298,14 @@ func TestSettingsKindleSaveAndNavigation(t *testing.T) {
 	m.input.SetValue("reader@kindle.com")
 	next, _ = m.Update(key("enter"))
 	m = next.(settingsModel)
-	if m.page != "home" || m.cursor != 4 || m.value(kindleToKey).Value != "reader@kindle.com" {
+	if m.page != "home" || m.cursor != kindleCursor || m.value(kindleToKey).Value != "reader@kindle.com" {
 		t.Fatal("Kindle save did not return to selection")
 	}
 	data, err := os.ReadFile(s.kindle)
 	if err != nil || !strings.Contains(string(data), "reader@kindle.com") || strings.Contains(string(data), "ZLIB_SMTP_PWD") {
 		t.Fatalf("Kindle config was not saved safely: %v", err)
 	}
-	m.edit(kindlePortKey)
+	m.editText(kindlePortKey)
 	m.input.SetValue("70000")
 	next, _ = m.Update(key("enter"))
 	m = next.(settingsModel)
@@ -317,11 +323,11 @@ func TestSettingsKindleSaveAndNavigation(t *testing.T) {
 	}
 	// smtp.163.com documents 994 as an SSL/TLS port; IANA does not, so the
 	// mode has to be set explicitly.
-	m.edit(kindlePortKey)
+	m.editText(kindlePortKey)
 	m.input.SetValue("994")
 	next, _ = m.Update(key("enter"))
 	m = next.(settingsModel)
-	m.edit(kindleSecurityKey)
+	m.editText(kindleSecurityKey)
 	m.input.SetValue("ssl")
 	next, _ = m.Update(key("enter"))
 	m = next.(settingsModel)
@@ -384,7 +390,7 @@ func TestSettingsEditorsFitAndButtonsSave(t *testing.T) {
 	}
 	t.Setenv(zlib.EnvRetries, "")
 	m, _ := newSettingsModel(t.Context(), testSettingsStore(t), "download")
-	m.edit(zlib.EnvRetries)
+	m.editText(zlib.EnvRetries)
 	m.input.SetValue("2")
 	for range 3 {
 		next, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyTab})
@@ -438,17 +444,24 @@ func TestSettingsProbeFailureAndCancel(t *testing.T) {
 	m, _ := newSettingsModel(t.Context(), testSettingsStore(t), "domain")
 	cmd := m.probe("http://127.0.0.1:1", "domain")
 	batch := cmd().(tea.BatchMsg)
+	// Results stream one by one; follow each next command until the final message.
 	msg := batch[1]()
-	next, _ := m.Update(msg)
-	m = next.(settingsModel)
+	for {
+		next, follow := m.Update(msg)
+		m = next.(settingsModel)
+		if _, done := msg.(settingsProbeMsg); done || follow == nil {
+			break
+		}
+		msg = follow()
+	}
 	view := m.View().Content
-	if m.busy || len(m.domains) == 0 || !strings.Contains(view, "0 of ") || !strings.Contains(view, "Unavailable") {
+	if m.busy || len(m.domains) == 0 || !strings.Contains(view, "0 of ") || !strings.Contains(view, "✗") {
 		t.Fatal("failed probe has no recovery state")
 	}
 	m.probe("http://127.0.0.1:1", "domain")
 	old := m.generation
 	m.back()
-	next, _ = m.Update(settingsProbeMsg{generation: old, checks: map[string]zlib.DomainCheck{"stale": {}}})
+	next, _ := m.Update(settingsProbeMsg{generation: old, checks: map[string]zlib.DomainCheck{"stale": {}}})
 	m = next.(settingsModel)
 	if _, stale := m.checks["stale"]; m.page != "network" || stale {
 		t.Fatal("cancelled probe updated page")

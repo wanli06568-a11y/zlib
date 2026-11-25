@@ -20,6 +20,12 @@ func shellStep(m shellModel, msg tea.Msg) (shellModel, tea.Cmd) {
 	return next.(shellModel), cmd
 }
 
+// withoutSpace drops all whitespace, so a path that the view wraps at the
+// window width (which depends on how deep the checkout is) still matches.
+func withoutSpace(s string) string {
+	return strings.Join(strings.Fields(s), "")
+}
+
 // Errors stay until the next key press: a timer could clear one before it is
 // read. The input and key hints keep their rows either way.
 func TestShellErrorNoticeStaysUntilKeyPressWithoutReplacingInputOrHelp(t *testing.T) {
@@ -180,7 +186,7 @@ func TestShellDownloadReturnsToSelectedBook(t *testing.T) {
 		t.Fatal("completed download did not stay on its page with an absolute path")
 	}
 	view := ansi.Strip(m.View().Content)
-	if !strings.Contains(view, "Download complete") || !strings.Contains(view, "Saved to:") || !strings.Contains(view, savedPath) {
+	if !strings.Contains(view, "Download complete") || !strings.Contains(view, "Saved to:") || !strings.Contains(withoutSpace(view), withoutSpace(savedPath)) {
 		t.Fatal("completion page omitted the full saved path")
 	}
 	m, cmd = shellStep(m, key("enter"))
@@ -224,12 +230,12 @@ func TestShellDownloadKindleActionReturnsToCompletion(t *testing.T) {
 		m, _ = shellStep(m, cmd())
 	}
 	chooseKindle()
-	if m.kind != "kindle-confirm" || m.kindleReturn == nil || m.kindlePath != path {
+	if m.kind != "kindle-confirm" || m.deliveryReturn == nil || m.kindlePath != path {
 		t.Fatal("Kindle confirmation lost the downloaded book")
 	}
 	m, cmd := shellStep(m, key("enter"))
 	m, _ = shellStep(m, cmd())
-	if m.kind != "download" || m.kindleReturn != nil || m.page.(downloadModel).savedPath != path {
+	if m.kind != "download" || m.deliveryReturn != nil || m.page.(downloadModel).savedPath != path {
 		t.Fatal("cancel did not return to download completion")
 	}
 	chooseKindle()
@@ -267,7 +273,7 @@ func TestShellDownloadKindleActionReturnsToCompletion(t *testing.T) {
 	}
 	m, cmd = shellStep(m, key("ctrl+s"))
 	m, _ = shellStep(m, cmd())
-	if m.kind != "kindle-send" || m.kindleReturn == nil {
+	if m.kind != "kindle-send" || m.deliveryReturn == nil {
 		t.Fatal("saved SMTP password did not continue to sender")
 	}
 	if os.Getenv(kindleSMTPPasswordEnv) != "fixture-password" {
@@ -306,7 +312,7 @@ func TestShellDownloadKindleActionReturnsToCompletion(t *testing.T) {
 	}
 	m, cmd = shellStep(m, key("enter"))
 	m, _ = shellStep(m, cmd())
-	if m.kind != "list" || m.kindleReturn != nil || m.page.(searchSelectModel).cursor != 0 {
+	if m.kind != "list" || m.deliveryReturn != nil || m.page.(searchSelectModel).cursor != 0 {
 		t.Fatal("Back did not return to the selected list item")
 	}
 }
@@ -338,7 +344,8 @@ func TestShellDownloadKindleRejectsUnsupportedFile(t *testing.T) {
 	m := newShellModel()
 	page := newDownloadModel("1:abc", ".", nil)
 	page.state = stateComplete
-	page.savedPath = filepath.Join(t.TempDir(), "book.fb2")
+	// DjVu is not a Kindle, WeRead or metadata format, so only Back is offered.
+	page.savedPath = filepath.Join(t.TempDir(), "book.djvu")
 	m.open("download", page)
 	if strings.Contains(ansi.Strip(m.View().Content), "Send to Kindle") {
 		t.Fatal("unsupported file still offers Kindle delivery")
@@ -349,7 +356,7 @@ func TestShellDownloadKindleRejectsUnsupportedFile(t *testing.T) {
 	}
 	m, cmd := shellStep(m, key("enter"))
 	m, _ = shellStep(m, cmd())
-	if m.kind != "" || m.kindleReturn != nil {
+	if m.kind != "" || m.deliveryReturn != nil {
 		t.Fatal("unsupported file did not return from download completion")
 	}
 }
